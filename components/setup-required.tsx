@@ -3,7 +3,6 @@ export function SetupRequired() {
     <main className="auth-shell">
       <section className="auth-card setup-card">
         <div className="auth-brand">
-          <span>T</span>
           <div>
             <b>TRADING</b>
             <small>COMMAND CENTER</small>

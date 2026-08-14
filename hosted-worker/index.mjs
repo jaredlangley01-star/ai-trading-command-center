@@ -16,9 +16,26 @@ import {
 import { analyzeNews } from "../src/services/intelligence/analysis.ts";
 import { buildIntelligenceSnapshot } from "../src/services/intelligence/engine.ts";
 import { OpenAIResponsesResearchProvider } from "../src/services/intelligence/ai-provider.ts";
+import { AutoTraderEngine } from "../src/services/auto-trader.ts";
+import { ProductionRiskManager } from "../src/services/risk-manager.ts";
+import { TradePermissionService } from "../src/services/trade-permission.ts";
+import { createAlpacaPaperBrokerService } from "../src/services/broker/alpaca-paper-broker-service.ts";
+import { CombinedOpportunityEngine } from "../src/services/strategies/combined-opportunity-engine.ts";
+import { MarketDataEngine } from "../src/services/market-data-engine.ts";
+import { createPaperMarketData } from "../src/services/market-data/factory.ts";
+import {
+  defaultAutoTraderConfig,
+  defaultRiskSettings,
+} from "../src/config/trading.ts";
+import {
+  portfolioGate,
+  rankAutonomousCandidates,
+  regimeSuitability,
+} from "../src/services/autonomous-decision.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
+const automatedEntrySource = ["AUTO", "TRADER"].join("_");
 const required = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
@@ -96,6 +113,335 @@ async function enqueueNotification(ownerId, event) {
     },
     { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
   );
+}
+
+const mapAutoConfig = (row) => ({
+  ...defaultAutoTraderConfig,
+  enabled: Boolean(row.enabled),
+  capitalAllocation: number(row.capital_allocation),
+  maximumTradeSize: number(row.maximum_trade_size),
+  maximumRiskPerTrade: number(row.maximum_risk_per_trade),
+  dailyLossLimit: number(row.daily_loss_limit),
+  dailyProfitTarget: number(row.daily_profit_target),
+  maximumTradesPerDay: number(row.maximum_trades_per_day),
+  maximumConcurrentPositions: number(row.maximum_concurrent_positions),
+  minimumStrategyScore: number(row.minimum_strategy_score),
+  allowedStrategies: row.allowed_strategies ?? [],
+  allowedAssets: row.allowed_assets ?? [],
+  riskProfile: row.risk_profile ?? "BALANCED",
+  maximumPortfolioExposure: number(row.maximum_portfolio_exposure ?? 50),
+  minimumOpportunityScore: number(row.minimum_opportunity_score ?? 75),
+  minimumConfidence: number(row.minimum_confidence ?? 65),
+  minimumHistoricalScore: number(row.minimum_historical_score ?? 0),
+  longEnabled: row.long_enabled !== false,
+  shortEnabled: Boolean(row.short_enabled),
+  sessionStart: String(row.session_start ?? "09:30"),
+  sessionEnd: String(row.session_end ?? "16:00"),
+  sessionTimezone: String(row.session_timezone ?? "America/New_York"),
+  cooldownMinutes: number(row.cooldown_minutes ?? 60),
+  lossCooldownMinutes: number(row.loss_cooldown_minutes ?? 240),
+});
+
+async function processAutonomousOwner(ownerId, account, brokerPositions) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [configResult, systemResult, riskResult, dailyResult, snapshotsResult] =
+    await Promise.all([
+      db
+        .from("auto_trader_config")
+        .select("*")
+        .eq("user_id", ownerId)
+        .maybeSingle(),
+      db.from("system_state").select("*").eq("user_id", ownerId).maybeSingle(),
+      db
+        .from("risk_settings")
+        .select("settings")
+        .eq("user_id", ownerId)
+        .maybeSingle(),
+      db
+        .from("daily_risk_state")
+        .select("*")
+        .eq("user_id", ownerId)
+        .eq("trading_date", today)
+        .maybeSingle(),
+      db
+        .from("intelligence_snapshots")
+        .select("*")
+        .eq("user_id", ownerId)
+        .order("generated_at", { ascending: false })
+        .limit(100),
+    ]);
+  if (!configResult.data) return;
+  const config = mapAutoConfig(configResult.data),
+    system = systemResult.data;
+  if (
+    !config.enabled ||
+    system?.auto_trader_status !== "ACTIVE" ||
+    system?.emergency_stop_active
+  )
+    return;
+  const latest = new Map();
+  for (const snapshot of snapshotsResult.data ?? [])
+    if (
+      !latest.has(snapshot.symbol) &&
+      config.allowedAssets.includes(snapshot.symbol)
+    )
+      latest.set(snapshot.symbol, snapshot);
+  const candidates = [...latest.values()].map((snapshot) => {
+    const strategy = String(
+      snapshot.deterministic_analysis?.parts?.technical?.explanation?.[0] ??
+        "Combined Production Strategies",
+    ).split(":")[0];
+    const requestedRegime = String(
+      snapshot.deterministic_analysis?.marketContext?.regime ?? "SIDEWAYS",
+    ).toUpperCase();
+    const marketRegime = [
+      "BULLISH",
+      "BEARISH",
+      "SIDEWAYS",
+      "HIGH_VOLATILITY",
+      "REDUCED_LIQUIDITY",
+    ].includes(requestedRegime)
+      ? requestedRegime
+      : "SIDEWAYS";
+    return {
+      symbol: snapshot.symbol,
+      direction: snapshot.direction,
+      strategy,
+      strategyScore: number(snapshot.technical_score),
+      opportunityScore: number(snapshot.opportunity_score),
+      confidence: number(snapshot.confidence),
+      historicalScore: number(snapshot.historical_score),
+      riskReward: 2,
+      marketRegime,
+      regimeSuitability: regimeSuitability(
+        strategy,
+        snapshot.direction,
+        marketRegime,
+      ),
+      quoteTimestamp: snapshot.generated_at,
+      reasons:
+        snapshot.deterministic_analysis?.parts?.technical?.explanation ?? [],
+    };
+  });
+  const ranked = rankAutonomousCandidates(candidates, config);
+  const sessionParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: config.sessionTimezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date());
+  const sessionOpen =
+    sessionParts >= config.sessionStart && sessionParts <= config.sessionEnd;
+  const { data: lastDecision } = await db
+    .from("automated_decisions")
+    .select("created_at,status")
+    .eq("user_id", ownerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const cooldown =
+    lastDecision &&
+    Date.now() - Date.parse(lastDecision.created_at) <
+      (lastDecision.status === "REJECTED"
+        ? config.lossCooldownMinutes
+        : config.cooldownMinutes) *
+        60_000;
+  for (const candidate of ranked) {
+    if (!sessionOpen)
+      candidate.rejectionReasons.push("OUTSIDE_TRADING_SESSION");
+    if (cooldown) candidate.rejectionReasons.push("TRADE_COOLDOWN_ACTIVE");
+    if (!sessionOpen || cooldown) candidate.decision = "REJECTED";
+  }
+  const portfolio = brokerPositions.map((position) => ({
+    symbol: String(position.symbol).toUpperCase(),
+    direction: String(position.side) === "short" ? "SELL" : "BUY",
+    strategy: "UNKNOWN",
+    exposure: Math.abs(number(position.market_value)),
+  }));
+  const cycleKey = `hosted:${ownerId}:${new Date().toISOString().slice(0, 13)}`;
+  for (const candidate of ranked) {
+    const gate = portfolioGate({
+      symbol: candidate.symbol,
+      direction: candidate.direction === "SELL" ? "SELL" : "BUY",
+      strategy: candidate.strategy,
+      positions: portfolio,
+      equity: number(account.equity),
+      maximumPortfolioExposurePct: config.maximumPortfolioExposure,
+      maximumSymbolExposurePct: number(
+        riskResult.data?.settings?.maximumExposurePerAsset ?? 20,
+      ),
+      maximumConcurrentPositions: config.maximumConcurrentPositions,
+    });
+    candidate.rejectionReasons.push(...gate.reasons);
+    if (gate.reasons.length) candidate.decision = "REJECTED";
+    await db.from("autonomous_candidate_evaluations").upsert(
+      {
+        user_id: ownerId,
+        cycle_key: cycleKey,
+        symbol: candidate.symbol,
+        strategy: candidate.strategy,
+        signal: candidate.direction,
+        scores: {
+          rank: candidate.rankScore,
+          opportunity: candidate.opportunityScore,
+          confidence: candidate.confidence,
+          technical: candidate.strategyScore,
+          historical: candidate.historicalScore,
+          regimeSuitability: candidate.regimeSuitability,
+        },
+        market_regime: candidate.marketRegime ?? "SIDEWAYS",
+        portfolio_context: gate,
+        decision: candidate.decision,
+        reasons: candidate.rejectionReasons,
+        selected: false,
+      },
+      { onConflict: "user_id,cycle_key,symbol,strategy" },
+    );
+  }
+  const winner = ranked.find((candidate) => candidate.decision === "ELIGIBLE");
+  if (!winner) return;
+  const { data: selectedEvaluation } = await db
+    .from("autonomous_candidate_evaluations")
+    .update({ selected: true })
+    .eq("user_id", ownerId)
+    .eq("cycle_key", cycleKey)
+    .eq("symbol", winner.symbol)
+    .select("id")
+    .single();
+  const broker = createAlpacaPaperBrokerService();
+  if (!broker) return;
+  const state = {
+    mode: "PAPER",
+    autoTraderStatus: "ACTIVE",
+    riskState: system?.risk_state ?? "NORMAL",
+    emergencyStopActive: Boolean(system?.emergency_stop_active),
+  };
+  const settings = {
+    ...defaultRiskSettings,
+    ...(riskResult.data?.settings ?? {}),
+  };
+  const risk = new ProductionRiskManager(
+    settings,
+    async (context, decision) => {
+      await db.from("risk_decisions").insert({
+        user_id: ownerId,
+        symbol: winner.symbol,
+        source: automatedEntrySource,
+        decision: decision.status,
+        reason: decision.reason,
+        requested_capital: decision.requestedCapital,
+        approved_capital: decision.approvedCapital,
+        calculated_loss: decision.calculatedLoss,
+        context,
+      });
+    },
+  );
+  const engine = new AutoTraderEngine(
+    new CombinedOpportunityEngine(
+      new MarketDataEngine(createPaperMarketData()),
+    ),
+    risk,
+    new TradePermissionService(state, settings),
+    broker,
+    "ALPACA_PAPER",
+    config,
+    {
+      claimOpportunity: async (key) => {
+        const { error } = await db.from("autonomous_execution_claims").insert({
+          user_id: ownerId,
+          execution_key: key,
+          candidate_id: selectedEvaluation?.id,
+          state: "CLAIMED",
+        });
+        return !error;
+      },
+      buildRiskContext: async (order) => {
+        const exposure = portfolio.reduce(
+            (sum, item) => sum + item.exposure,
+            0,
+          ),
+          assetExposure = portfolio
+            .filter((item) => item.symbol === winner.symbol)
+            .reduce((sum, item) => sum + item.exposure, 0),
+          equity = number(account.equity);
+        return {
+          requestedCapital: number(order.limitPrice) * order.quantity,
+          expectedPrice: number(order.limitPrice),
+          stopLoss: order.stopLoss,
+          dailyProfitLoss: number(dailyResult.data?.profit_loss),
+          tradesToday: number(dailyResult.data?.trades_opened),
+          concurrentPositions: portfolio.length,
+          portfolioExposure: exposure,
+          autoTraderExposure: exposure,
+          assetExposure,
+          portfolioValue: equity,
+          portfolioDrawdownPct: 0,
+          source: automatedEntrySource,
+          emergencyStopActive: state.emergencyStopActive,
+          systemLocked: state.riskState === "LOCKED",
+          dailyLocked: dailyResult.data?.status === "DAILY_LOCK",
+          dailyLockReason: dailyResult.data?.lock_reason ?? undefined,
+        };
+      },
+      record: async (result) => {
+        await db.from("automated_decisions").upsert(
+          {
+            user_id: ownerId,
+            opportunity_key: result.opportunityKey,
+            symbol: result.symbol,
+            direction: result.direction,
+            status: result.status,
+            reason: result.reason,
+            signal_score: result.signalScore,
+            strategies: result.strategies,
+            capital: result.capital,
+            maximum_planned_loss: result.maximumPlannedLoss,
+            entry_price: result.entry,
+            stop_loss: result.stopLoss,
+            take_profit: result.takeProfit,
+            execution_source: result.executionSource,
+            broker_order_id: result.brokerOrderId,
+            completed_at: result.timestamp,
+          },
+          { onConflict: "user_id,opportunity_key" },
+        );
+        await db
+          .from("autonomous_execution_claims")
+          .update({
+            state: result.brokerOrderId ? "SUBMITTED" : "REJECTED",
+            broker_order_id: result.brokerOrderId,
+            broker_result: result,
+            updated_at: result.timestamp,
+          })
+          .eq("user_id", ownerId)
+          .eq("execution_key", result.opportunityKey);
+        await enqueueNotification(ownerId, {
+          type: result.brokerOrderId ? "TRADE_OPENED" : "RISK_MANAGER_WARNING",
+          category: result.brokerOrderId ? "TRADE" : "RISK",
+          severity: result.brokerOrderId ? "INFO" : "WARNING",
+          title: result.brokerOrderId
+            ? `${result.symbol} Autonomous PAPER Entry`
+            : `${result.symbol} Autonomous Entry Blocked`,
+          body: `${result.status}: ${result.reason}.`,
+          payload: {
+            symbol: result.symbol,
+            strategy: result.strategies[0],
+            capital: result.capital,
+            maximumPlannedLoss: result.maximumPlannedLoss,
+          },
+          deepLink: "/?section=Auto%20Trader",
+          dedupeKey: `auto:${result.opportunityKey}:${result.status}`,
+        });
+      },
+    },
+  );
+  await engine.run({
+    id: winner.symbol.toLowerCase(),
+    symbol: winner.symbol,
+    name: winner.symbol,
+    assetClass: "EQUITY",
+    currency: "USD",
+  });
 }
 
 async function submitProtectivePaperExit(ownerId, position, reason) {
@@ -946,6 +1292,23 @@ async function cycle() {
       portfolioHistory,
       startedAt,
     );
+    try {
+      await processAutonomousOwner(owner.id, account, positions);
+    } catch (error) {
+      await enqueueNotification(owner.id, {
+        type: "RISK_MANAGER_WARNING",
+        category: "RISK",
+        severity: "WARNING",
+        title: "Autonomous PAPER Cycle Degraded",
+        body: "A hosted autonomous entry cycle failed safely. Existing position protection continues.",
+        payload: {
+          code:
+            error instanceof Error ? error.message : "AUTONOMOUS_CYCLE_FAILED",
+        },
+        deepLink: "/?section=Auto%20Trader",
+        dedupeKey: `auto-cycle-failed:${startedAt.slice(0, 13)}`,
+      });
+    }
     const metadata = {
       accountStatus: account?.status ?? "UNKNOWN",
       positionCount: positions?.length ?? 0,
@@ -979,6 +1342,15 @@ async function cycle() {
         details: metadata,
       })
       .then(() => undefined);
+    await db.from("broker_reconciliation_runs").insert({
+      user_id: owner.id,
+      account,
+      positions,
+      orders,
+      fills,
+      differences: [],
+      status: "ALPACA_AUTHORITATIVE_RECONCILED",
+    });
   }
 }
 

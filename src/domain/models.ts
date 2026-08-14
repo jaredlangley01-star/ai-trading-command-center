@@ -128,6 +128,18 @@ export interface AutoTraderConfig {
   minimumStrategyScore: number;
   allowedStrategies: string[];
   allowedAssets: string[];
+  riskProfile: "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
+  maximumPortfolioExposure: number;
+  minimumOpportunityScore: number;
+  minimumConfidence: number;
+  minimumHistoricalScore: number;
+  longEnabled: boolean;
+  shortEnabled: boolean;
+  sessionStart: string;
+  sessionEnd: string;
+  sessionTimezone: string;
+  cooldownMinutes: number;
+  lossCooldownMinutes: number;
 }
 export type AutomatedDecisionStatus =
   | "EXECUTED"

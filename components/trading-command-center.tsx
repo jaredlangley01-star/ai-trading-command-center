@@ -21,6 +21,7 @@ import {
   NotificationCenterWorkspace,
   NotificationSettingsWorkspace,
 } from "./notification-workspace";
+import { ProfessionalMarketDashboard } from "./professional-market-dashboard";
 
 type AutoState = "ACTIVE" | "PAUSED" | "LOCKED";
 type Modal = "analysis" | "modify" | "position" | "reset" | null;
@@ -417,7 +418,6 @@ export function TradingCommandCenter({
       )}
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">T</div>
           <div>
             <strong>TRADING</strong>
             <span>COMMAND CENTER</span>
@@ -1362,6 +1362,12 @@ function AutoTraderWorkspace({
               ["maximumTradesPerDay", "MAX TRADES / DAY"],
               ["maximumConcurrentPositions", "MAX CONCURRENT POSITIONS"],
               ["minimumStrategyScore", "MINIMUM SIGNAL SCORE"],
+              ["maximumPortfolioExposure", "MAX PORTFOLIO EXPOSURE %"],
+              ["minimumOpportunityScore", "MIN OPPORTUNITY SCORE"],
+              ["minimumConfidence", "MIN DATA CONFIDENCE"],
+              ["minimumHistoricalScore", "MIN HISTORICAL EVIDENCE"],
+              ["cooldownMinutes", "COOLDOWN AFTER TRADE (MIN)"],
+              ["lossCooldownMinutes", "COOLDOWN AFTER LOSS (MIN)"],
             ] as Array<[keyof AutoTraderConfig, string]>
           ).map(([key, label]) => (
             <label key={key}>
@@ -1369,7 +1375,17 @@ function AutoTraderWorkspace({
               <input
                 type="number"
                 min="0"
-                max={key === "minimumStrategyScore" ? 100 : undefined}
+                max={
+                  [
+                    "minimumStrategyScore",
+                    "maximumPortfolioExposure",
+                    "minimumOpportunityScore",
+                    "minimumConfidence",
+                    "minimumHistoricalScore",
+                  ].includes(key)
+                    ? 100
+                    : undefined
+                }
                 value={config[key] as number}
                 onChange={(event) =>
                   setConfig({ ...config, [key]: Number(event.target.value) })
@@ -1377,6 +1393,74 @@ function AutoTraderWorkspace({
               />
             </label>
           ))}
+        </div>
+        <div className="auto-config-grid">
+          <label>
+            <span>RISK PROFILE</span>
+            <select
+              value={config.riskProfile}
+              onChange={(event) =>
+                setConfig({
+                  ...config,
+                  riskProfile: event.target
+                    .value as AutoTraderConfig["riskProfile"],
+                })
+              }
+            >
+              <option>CONSERVATIVE</option>
+              <option>BALANCED</option>
+              <option>AGGRESSIVE</option>
+            </select>
+          </label>
+          <label className="toggle-row">
+            <span>LONG ENABLED</span>
+            <input
+              type="checkbox"
+              checked={config.longEnabled}
+              onChange={(event) =>
+                setConfig({ ...config, longEnabled: event.target.checked })
+              }
+            />
+          </label>
+          <label className="toggle-row">
+            <span>SHORT ENABLED</span>
+            <input
+              type="checkbox"
+              checked={config.shortEnabled}
+              onChange={(event) =>
+                setConfig({ ...config, shortEnabled: event.target.checked })
+              }
+            />
+          </label>
+          <label>
+            <span>SESSION START</span>
+            <input
+              type="time"
+              value={config.sessionStart}
+              onChange={(event) =>
+                setConfig({ ...config, sessionStart: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>SESSION END</span>
+            <input
+              type="time"
+              value={config.sessionEnd}
+              onChange={(event) =>
+                setConfig({ ...config, sessionEnd: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>SESSION TIMEZONE</span>
+            <input
+              value={config.sessionTimezone}
+              onChange={(event) =>
+                setConfig({ ...config, sessionTimezone: event.target.value })
+              }
+            />
+          </label>
         </div>
         <div className="auto-allowlist">
           <div>
@@ -2216,9 +2300,11 @@ function Dashboard(p: {
               />
             </div>
           </div>
-          <PortfolioChart range={p.range} setRange={p.setRange} />
+          <ProfessionalMarketDashboard
+            positions={p.livePositions}
+            portfolioValue={livePortfolioValue}
+          />
         </div>
-        <MarketOverview />
       </section>
       <div className="dashboard-grid">
         <div className="primary-column">
@@ -2303,7 +2389,7 @@ function DirectionBadge({ direction }: { direction: string }) {
     </span>
   );
 }
-function PortfolioChart({
+export function PortfolioChart({
   range,
   setRange,
 }: {
@@ -2365,7 +2451,7 @@ function PortfolioChart({
     </div>
   );
 }
-function MarketOverview() {
+export function MarketOverview() {
   return (
     <div className="market-card">
       <header>

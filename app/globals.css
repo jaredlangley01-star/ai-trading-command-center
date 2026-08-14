@@ -1320,6 +1320,181 @@ td {
     display: none;
   }
 }
+
+/* TRADE-015 professional dashboard hierarchy */
+html {
+  font-size: 17px;
+}
+button,
+select,
+input {
+  min-height: 42px;
+  font-size: 0.92rem;
+}
+.hero-value {
+  font-size: clamp(2.35rem, 4vw, 4.25rem);
+}
+.financial-metric b {
+  font-size: clamp(1.15rem, 1.8vw, 1.65rem);
+}
+.professional-dashboard {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  margin-top: 18px;
+}
+.account-conversion {
+  display: flex;
+  align-items: end;
+  gap: 24px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: #09130f;
+  border-radius: 10px;
+}
+.account-conversion > div {
+  display: grid;
+  gap: 4px;
+  margin-right: auto;
+}
+.account-conversion strong {
+  font-size: clamp(1.5rem, 2.4vw, 2.4rem);
+  color: var(--text);
+}
+.account-conversion b {
+  color: #8eb4ff;
+  font-size: 1.1rem;
+}
+.account-conversion label {
+  display: grid;
+  gap: 5px;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+.trading-clocks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.trading-clocks > div {
+  display: grid;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a1511;
+}
+.trading-clocks span {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+.trading-clocks b {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.15rem, 2vw, 1.6rem);
+}
+.trading-clocks small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+.pro-chart-widget {
+  min-width: 0;
+}
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.chart-controls button.active {
+  color: #08110e;
+  background: #61d9a6;
+}
+.lightweight-chart {
+  width: 100%;
+  min-height: 420px;
+  overflow: hidden;
+}
+.position-overlay-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 2px;
+  color: var(--muted);
+}
+.position-overlay-summary b {
+  color: var(--text);
+}
+.chart-attribution {
+  display: block;
+  text-align: right;
+  color: var(--muted);
+  padding-top: 5px;
+}
+.chart-attribution a {
+  color: #8eb4ff;
+}
+.market-overview-pro input {
+  max-width: 230px;
+}
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.market-grid article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a1511;
+}
+.market-grid article b {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+.market-grid article small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.module[draggable="true"] {
+  cursor: grab;
+}
+.brand {
+  padding-left: 4px;
+}
+@media (max-width: 1000px) {
+  .market-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .trading-clocks {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .account-conversion {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 620px) {
+  html {
+    font-size: 16px;
+  }
+  .market-grid,
+  .trading-clocks {
+    grid-template-columns: 1fr 1fr;
+  }
+  .chart-controls select,
+  .chart-controls button {
+    flex: 1 1 auto;
+  }
+  .lightweight-chart {
+    min-height: 340px;
+  }
+  .account-conversion {
+    flex-direction: column;
+  }
+}
 @media (max-width: 700px) {
   body {
     overflow-x: hidden;

@@ -192,9 +192,12 @@ export class AutoTraderEngine {
         takeProfit: target,
         executionSource: "NONE",
       });
+    const riskSizedCapital =
+      (this.config.maximumRiskPerTrade / Math.abs(entry - stop)) * entry;
     let capital = Math.min(
       this.config.maximumTradeSize,
       this.config.capitalAllocation,
+      riskSizedCapital,
     );
     let quantity = Math.max(1, Math.floor(capital / entry));
     capital = quantity * entry;

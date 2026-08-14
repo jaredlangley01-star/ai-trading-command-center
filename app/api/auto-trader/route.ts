@@ -52,6 +52,20 @@ const mapConfig = (row: Record<string, unknown> | null): AutoTraderConfig =>
         minimumStrategyScore: Number(row.minimum_strategy_score),
         allowedStrategies: row.allowed_strategies as string[],
         allowedAssets: row.allowed_assets as string[],
+        riskProfile: String(
+          row.risk_profile,
+        ) as AutoTraderConfig["riskProfile"],
+        maximumPortfolioExposure: Number(row.maximum_portfolio_exposure),
+        minimumOpportunityScore: Number(row.minimum_opportunity_score),
+        minimumConfidence: Number(row.minimum_confidence),
+        minimumHistoricalScore: Number(row.minimum_historical_score),
+        longEnabled: Boolean(row.long_enabled),
+        shortEnabled: Boolean(row.short_enabled),
+        sessionStart: String(row.session_start),
+        sessionEnd: String(row.session_end),
+        sessionTimezone: String(row.session_timezone),
+        cooldownMinutes: Number(row.cooldown_minutes),
+        lossCooldownMinutes: Number(row.loss_cooldown_minutes),
       }
     : defaultAutoTraderConfig;
 
@@ -513,6 +527,18 @@ async function upsertConfig(
       minimum_strategy_score: config.minimumStrategyScore,
       allowed_strategies: config.allowedStrategies,
       allowed_assets: config.allowedAssets,
+      risk_profile: config.riskProfile,
+      maximum_portfolio_exposure: config.maximumPortfolioExposure,
+      minimum_opportunity_score: config.minimumOpportunityScore,
+      minimum_confidence: config.minimumConfidence,
+      minimum_historical_score: config.minimumHistoricalScore,
+      long_enabled: config.longEnabled,
+      short_enabled: config.shortEnabled,
+      session_start: config.sessionStart,
+      session_end: config.sessionEnd,
+      session_timezone: config.sessionTimezone,
+      cooldown_minutes: config.cooldownMinutes,
+      loss_cooldown_minutes: config.lossCooldownMinutes,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -523,6 +549,12 @@ function validConfig(config: AutoTraderConfig) {
   return (
     config.minimumStrategyScore >= 0 &&
     config.minimumStrategyScore <= 100 &&
+    config.minimumOpportunityScore >= 0 &&
+    config.minimumOpportunityScore <= 100 &&
+    config.minimumConfidence >= 0 &&
+    config.minimumConfidence <= 100 &&
+    config.minimumHistoricalScore >= 0 &&
+    config.minimumHistoricalScore <= 100 &&
     config.allowedAssets.every((asset) => Boolean(assets[asset])) &&
     config.allowedStrategies.length > 0 &&
     [
