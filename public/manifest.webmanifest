@@ -1,0 +1,17 @@
+{
+  "name": "Trading Command Center",
+  "short_name": "Trade Center",
+  "description": "Private PAPER trading operations and research dashboard.",
+  "start_url": "/?source=pwa",
+  "display": "standalone",
+  "background_color": "#07100d",
+  "theme_color": "#07100d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

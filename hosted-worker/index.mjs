@@ -81,6 +81,22 @@ const masked = (value) => {
   const text = String(value ?? "");
   return text.length > 4 ? `****${text.slice(-4)}` : "****";
 };
+async function enqueueNotification(ownerId, event) {
+  await db.from("notification_events").upsert(
+    {
+      user_id: ownerId,
+      event_type: event.type,
+      category: event.category,
+      severity: event.severity,
+      title: event.title,
+      body: event.body,
+      payload: event.payload ?? {},
+      deep_link: event.deepLink ?? "/?section=Notifications",
+      dedupe_key: event.dedupeKey,
+    },
+    { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
+  );
+}
 
 async function submitProtectivePaperExit(ownerId, position, reason) {
   if (process.env.BROKER_ADAPTER !== "ALPACA_PAPER")
@@ -163,6 +179,20 @@ async function submitProtectivePaperExit(ownerId, position, reason) {
         client_order_id: clientOrderId,
       },
     });
+    await enqueueNotification(ownerId, {
+      type: reason === "STOP_LOSS" ? "STOP_LOSS_HIT" : "TAKE_PROFIT_HIT",
+      category: "TRADE",
+      severity: reason === "STOP_LOSS" ? "WARNING" : "INFO",
+      title: `${String(position.symbol).toUpperCase()} ${reason === "STOP_LOSS" ? "Stop-Loss" : "Take-Profit"} Triggered`,
+      body: `A protective PAPER exit was submitted for ${quantity} ${String(position.symbol).toUpperCase()}.`,
+      payload: {
+        symbol: String(position.symbol).toUpperCase(),
+        quantity,
+        reason,
+      },
+      deepLink: "/?section=Portfolio",
+      dedupeKey: `protective:submitted:${clientOrderId}`,
+    });
   } catch (error) {
     await db
       .from("paper_position_exit_claims")
@@ -172,6 +202,20 @@ async function submitProtectivePaperExit(ownerId, position, reason) {
         updated_at: new Date().toISOString(),
       })
       .eq("client_order_id", clientOrderId);
+    await enqueueNotification(ownerId, {
+      type: "PROTECTIVE_EXIT_FAILURE",
+      category: "RISK",
+      severity: "CRITICAL",
+      title: "Protective PAPER Exit Failed",
+      body: `${String(position.symbol).toUpperCase()} protective exit failed. Position monitoring remains active; owner attention is required.`,
+      payload: {
+        symbol: String(position.symbol).toUpperCase(),
+        reason,
+        code: error instanceof Error ? error.message : "EXIT_FAILED",
+      },
+      deepLink: "/?section=Portfolio",
+      dedupeKey: `protective:failed:${clientOrderId}`,
+    });
   }
 }
 
@@ -319,6 +363,27 @@ async function synchronizeOwnerPortfolio(
       })),
       { onConflict: "user_id,broker_execution_id", ignoreDuplicates: true },
     );
+  for (const fill of fills) {
+    const symbol = String(fill.symbol).toUpperCase();
+    const remainsOpen = positions.some(
+      (position) => String(position.symbol).toUpperCase() === symbol,
+    );
+    await enqueueNotification(ownerId, {
+      type: remainsOpen ? "TRADE_OPENED" : "TRADE_CLOSED",
+      category: "TRADE",
+      severity: "INFO",
+      title: `${symbol} PAPER Position ${remainsOpen ? "Updated" : "Closed"}`,
+      body: `${String(fill.side).toUpperCase()} ${number(fill.qty)} ${symbol} filled at ${number(fill.price)} in PAPER.`,
+      payload: {
+        symbol,
+        direction: String(fill.side).toUpperCase(),
+        quantity: number(fill.qty),
+        price: number(fill.price),
+      },
+      deepLink: "/?section=Portfolio",
+      dedupeKey: `fill:${String(fill.id ?? fill.activity_id)}`,
+    });
+  }
 }
 
 async function processBacktestJob() {
@@ -395,6 +460,16 @@ async function processBacktestJob() {
         completed_at: new Date().toISOString(),
       })
       .eq("id", queued.id);
+    await enqueueNotification(queued.user_id, {
+      type: "BACKTEST_COMPLETED",
+      category: "RESEARCH",
+      severity: "INFO",
+      title: "Backtest Completed",
+      body: `${config.symbol} ${config.strategy} historical analysis completed.`,
+      payload: { backtestId: queued.id, symbol: config.symbol },
+      deepLink: "/?section=Backtesting",
+      dedupeKey: `backtest:completed:${queued.id}`,
+    });
   } catch (error) {
     await db
       .from("backtests")
@@ -404,6 +479,16 @@ async function processBacktestJob() {
         completed_at: new Date().toISOString(),
       })
       .eq("id", queued.id);
+    await enqueueNotification(queued.user_id, {
+      type: "BACKTEST_FAILED",
+      category: "RESEARCH",
+      severity: "WARNING",
+      title: "Backtest Failed",
+      body: "A hosted backtest failed. Trading and protective position monitoring continue independently.",
+      payload: { backtestId: queued.id },
+      deepLink: "/?section=Backtesting",
+      dedupeKey: `backtest:failed:${queued.id}`,
+    });
   }
 }
 
@@ -768,6 +853,29 @@ async function processResearchJob() {
       .from("intelligence_research_jobs")
       .update({ status: "COMPLETED", completed_at: retrievedAt })
       .eq("id", queued.id);
+    await enqueueNotification(queued.user_id, {
+      type: "RESEARCH_OPPORTUNITY_FOUND",
+      category: "RESEARCH",
+      severity: "INFO",
+      title: `${queued.symbol} Research Opportunity`,
+      body: `${technicalCombined.direction} signal score ${snapshot.opportunityScore}/100 with ${snapshot.confidence}% confidence. Owner review is required.`,
+      payload: {
+        symbol: queued.symbol,
+        direction: technicalCombined.direction,
+        opportunityScore: snapshot.opportunityScore,
+        confidence: snapshot.confidence,
+        majorCatalyst:
+          snapshot.deterministicAnalysis.parts.catalyst.explanation[0] ??
+          "Unavailable",
+        majorRisk:
+          snapshot.deterministicAnalysis.parts.risk.explanation[0] ??
+          "Unavailable",
+        recommendedCapital: null,
+        maximumPlannedLoss: null,
+      },
+      deepLink: `/?section=Big%20Money&research=${queued.id}`,
+      dedupeKey: `research:${queued.id}`,
+    });
   } catch (error) {
     await db
       .from("intelligence_research_jobs")

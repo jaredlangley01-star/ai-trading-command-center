@@ -204,6 +204,43 @@ async function generate(
           event_type: "APPROVAL_REQUIRED",
         },
       ]),
+      supabase.from("notification_events").insert([
+        {
+          user_id: userId,
+          event_type: "BIG_MONEY_RECOMMENDATION",
+          category: "RESEARCH",
+          severity: "INFO",
+          title: `${recommendation.symbol} Big Money Recommendation`,
+          body: `${recommendation.direction} model/signal score ${recommendation.researchScore}/100. Explicit PAPER owner approval is required.`,
+          payload: {
+            symbol: recommendation.symbol,
+            direction: recommendation.direction,
+            opportunityScore: recommendation.researchScore,
+            confidence: recommendation.strategyScore,
+            majorCatalyst:
+              recommendation.supportingStrategies[0] ?? "Unavailable",
+            majorRisk: recommendation.conflictingStrategies[0] ?? "Unavailable",
+            recommendedCapital: recommendation.recommendedCapital,
+            maximumPlannedLoss: recommendation.maximumPlannedLoss,
+          },
+          deep_link: `/?section=Big%20Money&recommendation=${data.id}`,
+          dedupe_key: `big-money:${data.id}`,
+        },
+        {
+          user_id: userId,
+          event_type: "APPROVAL_REQUIRED",
+          category: "RESEARCH",
+          severity: "WARNING",
+          title: `${recommendation.symbol} Owner Review Required`,
+          body: "A PAPER-only recommendation is awaiting explicit owner action. This notification cannot approve it.",
+          payload: {
+            symbol: recommendation.symbol,
+            opportunityScore: recommendation.researchScore,
+          },
+          deep_link: `/?section=Big%20Money&recommendation=${data.id}`,
+          dedupe_key: `approval-required:${data.id}`,
+        },
+      ]),
     ]);
     return NextResponse.json({ recommendation: data, mode: "PAPER" });
   } catch (error) {

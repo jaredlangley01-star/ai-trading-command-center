@@ -17,6 +17,10 @@ import {
 import type { DashboardPersistence } from "@/src/lib/supabase/repository";
 import type { BrokerDashboardData } from "@/src/services/broker/dashboard";
 import { LogoutButton } from "./logout-button";
+import {
+  NotificationCenterWorkspace,
+  NotificationSettingsWorkspace,
+} from "./notification-workspace";
 
 type AutoState = "ACTIVE" | "PAUSED" | "LOCKED";
 type Modal = "analysis" | "modify" | "position" | "reset" | null;
@@ -199,6 +203,13 @@ export function TradingCommandCenter({
     positions: [],
     fills: [],
   });
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get(
+      "section",
+    );
+    if (requested && nav.includes(requested))
+      queueMicrotask(() => setSection(requested));
+  }, []);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
@@ -548,7 +559,11 @@ export function TradingCommandCenter({
           <RiskSettingsWorkspace initial={persistence.riskSettings} />
         ) : section === "Backtesting" ? (
           <BacktestingWorkspace />
-        ) : section === "Paper Trading" || section === "Settings" ? (
+        ) : section === "Notifications" ? (
+          <NotificationCenterWorkspace />
+        ) : section === "Settings" ? (
+          <NotificationSettingsWorkspace />
+        ) : section === "Paper Trading" ? (
           <BrokerWorkspace broker={displayedBroker} locked={locked} />
         ) : (
           <div className="empty-state">

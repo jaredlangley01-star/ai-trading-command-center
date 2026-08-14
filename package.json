@@ -11,6 +11,7 @@
     "build:vercel": "next build",
     "start:vercel": "next start",
     "worker:start": "node --experimental-strip-types hosted-worker/index.mjs",
+    "worker:notifications": "node --experimental-strip-types hosted-worker/notification-worker.mjs",
     "worker:check": "node --check hosted-worker/index.mjs",
     "start": "vinext start",
     "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.mjs",
@@ -25,7 +26,8 @@
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -35,6 +37,7 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",

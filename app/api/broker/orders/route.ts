@@ -280,6 +280,25 @@ export async function POST(request: Request) {
           quote_age_ms: freshness.ageMs,
         },
       });
+      await supabase.from("notification_events").upsert(
+        {
+          user_id: user.id,
+          event_type: "ORDER_SUBMITTED",
+          category: "TRADE",
+          severity: "INFO",
+          title: `${body.symbol.toUpperCase()} PAPER Order Submitted`,
+          body: `${body.direction} ${body.quantity} ${body.symbol.toUpperCase()} was submitted to the PAPER broker.`,
+          payload: {
+            symbol: body.symbol.toUpperCase(),
+            direction: body.direction,
+            quantity: body.quantity,
+            orderType: body.type,
+          },
+          deep_link: "/?section=Paper%20Trading",
+          dedupe_key: `order:submitted:${body.clientOrderId}`,
+        },
+        { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
+      );
     }
     return NextResponse.json(result);
   } catch (error) {
@@ -299,6 +318,20 @@ export async function POST(request: Request) {
           mode: "PAPER",
         },
       });
+      await supabase.from("notification_events").upsert(
+        {
+          user_id: user.id,
+          event_type: "ORDER_REJECTED",
+          category: "TRADE",
+          severity: "WARNING",
+          title: "PAPER Order Rejected",
+          body: `${body.symbol.toUpperCase()} PAPER order was rejected: ${failure.code}.`,
+          payload: { symbol: body.symbol.toUpperCase(), code: failure.code },
+          deep_link: "/?section=Paper%20Trading",
+          dedupe_key: `order:rejected:${body.clientOrderId}`,
+        },
+        { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
+      );
     }
     return NextResponse.json(failure, {
       status:

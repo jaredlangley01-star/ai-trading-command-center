@@ -9,7 +9,14 @@ export const metadata: Metadata = {
   title: "Trading Command Center",
   description:
     "Private paper-trading operations and risk-controlled research dashboard.",
-  icons: { icon: "/favicon.svg" },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Trade Center",
+    statusBarStyle: "black-translucent",
+  },
+  themeColor: "#07100d",
+  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
   openGraph: {
     title: "Trading Command Center",
     description: "Paper operations. Risk controlled.",
