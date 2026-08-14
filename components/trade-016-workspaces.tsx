@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ProfessionalMarketDashboard } from "./professional-market-dashboard";
 
 type Check = {
@@ -16,23 +16,58 @@ type DiagnosticPayload = {
   liveLocked: boolean;
   schemaVersion: string | null;
   expectedMigration: string;
+  generatedAt: string;
   nonTrading: boolean;
+  error?: string;
+};
+
+type DiagnosticFailure = {
+  message: string;
+  timestamp: string;
 };
 
 export function DiagnosticsWorkspace() {
   const [data, setData] = useState<DiagnosticPayload | null>(null),
     [running, setRunning] = useState(false),
-    [error, setError] = useState("");
+    [failure, setFailure] = useState<DiagnosticFailure | null>(null),
+    requestInFlight = useRef(false);
   const run = useCallback(async () => {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
     setRunning(true);
-    setError("");
+    setFailure(null);
     try {
-      const response = await fetch("/api/diagnostics", { cache: "no-store" });
-      if (!response.ok) throw new Error("SYSTEM_CHECK_FAILED");
-      setData(await response.json());
-    } catch {
-      setError("The non-trading system check could not complete.");
+      const response = await fetch("/api/diagnostics", {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
+      });
+      const payload = (await response
+        .json()
+        .catch(() => null)) as DiagnosticPayload | null;
+      if (payload?.checks) setData(payload);
+      if (!response.ok) {
+        const timestamp = payload?.generatedAt ?? new Date().toISOString();
+        setFailure({
+          message: `HTTP ${response.status}: ${payload?.error ?? "Diagnostics API request failed."}`,
+          timestamp,
+        });
+      } else if (!payload?.checks || !payload.generatedAt) {
+        setFailure({
+          message: "Diagnostics API returned an incomplete response.",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (requestError) {
+      setFailure({
+        message:
+          requestError instanceof Error
+            ? `Network/API failure: ${requestError.message}`
+            : "Network/API failure: diagnostics request did not complete.",
+        timestamp: new Date().toISOString(),
+      });
     } finally {
+      requestInFlight.current = false;
       setRunning(false);
     }
   }, []);
@@ -68,11 +103,25 @@ export function DiagnosticsWorkspace() {
             PAPER {data?.paperReady ? "READY" : "NOT READY"}
           </b>
           <b className="locked">
-            LIVE {data?.liveReady ? "READY" : "NOT CONFIGURED"} ·{" "}
+            LIVE {data?.liveReady ? "READY" : "NOT CONFIGURED"} —{" "}
             {data?.liveLocked ? "LOCKED" : "SERVER GATE ENABLED"}
           </b>
         </div>
-        {error && <div className="broker-error">{error}</div>}
+        <p className="diagnostics-last-checked" aria-live="polite">
+          LAST CHECKED ·{" "}
+          {data?.generatedAt
+            ? new Date(data.generatedAt).toLocaleString()
+            : "NOT COMPLETED"}
+        </p>
+        {failure && (
+          <div className="broker-error" role="alert">
+            <strong>SYSTEM CHECK FAILED</strong>
+            <span>{failure.message}</span>
+            <small>
+              FAILED AT · {new Date(failure.timestamp).toLocaleString()}
+            </small>
+          </div>
+        )}
       </section>
       <section className="module diagnostic-grid">
         {(data?.checks ?? []).map((check) => (
