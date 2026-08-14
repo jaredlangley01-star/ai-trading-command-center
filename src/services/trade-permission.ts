@@ -26,6 +26,9 @@ export class TradePermissionService {
       this.state.autoTraderStatus === "ACTIVE"
     );
   }
+  canManageExistingPosition() {
+    return this.state.mode === "PAPER";
+  }
   getLockReason() {
     return this.state.emergencyStopActive
       ? "Emergency stop is active"

@@ -51,7 +51,7 @@ export interface BrokerOrderRequest {
   confirmed: boolean;
   clientOrderId?: string;
   stopLoss?: number;
-  source?: "MANUAL" | "AUTO_TRADER" | "BIG_MONEY";
+  source?: "MANUAL" | "AUTO_TRADER" | "BIG_MONEY" | "POSITION_MANAGER";
 }
 export interface BrokerOrderResult {
   brokerOrderId?: string;
@@ -313,7 +313,7 @@ export interface TradeRiskContext {
   assetExposure: number;
   portfolioValue: number;
   portfolioDrawdownPct: number;
-  source: "MANUAL" | "AUTO_TRADER" | "BIG_MONEY";
+  source: "MANUAL" | "AUTO_TRADER" | "BIG_MONEY" | "POSITION_MANAGER";
   recommendationScore?: number;
   emergencyStopActive: boolean;
   systemLocked: boolean;

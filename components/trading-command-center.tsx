@@ -20,6 +20,21 @@ import { LogoutButton } from "./logout-button";
 
 type AutoState = "ACTIVE" | "PAUSED" | "LOCKED";
 type Modal = "analysis" | "modify" | "position" | "reset" | null;
+type HostedPortfolio = {
+  source: "ALPACA_PAPER" | "DEMO";
+  account: null | {
+    equity: number;
+    cash: number;
+    buying_power: number;
+    realized_pl_today: number;
+    unrealized_pl: number;
+    open_exposure: number;
+    position_count: number;
+    as_of: string;
+  };
+  positions: Array<Record<string, string | number | null>>;
+  fills: Array<Record<string, string | number | null>>;
+};
 const nav = [
   "Dashboard",
   "Auto Trader",
@@ -178,6 +193,30 @@ export function TradingCommandCenter({
     ageMs: broker.marketDataAgeMs,
     quotes: {} as Record<string, MarketQuote>,
   });
+  const [hostedPortfolio, setHostedPortfolio] = useState<HostedPortfolio>({
+    source: "DEMO",
+    account: null,
+    positions: [],
+    fills: [],
+  });
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/portfolio", { cache: "no-store" });
+        if (response.ok && active)
+          setHostedPortfolio((await response.json()) as HostedPortfolio);
+      } catch {
+        // Preserve the last synchronized PAPER snapshot during transient errors.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
@@ -225,12 +264,53 @@ export function TradingCommandCenter({
   }, []);
   const displayedBroker: BrokerDashboardData = {
     ...broker,
+    source:
+      hostedPortfolio.source === "ALPACA_PAPER"
+        ? "ALPACA_PAPER"
+        : broker.source,
+    summary: hostedPortfolio.account
+      ? {
+          accountIdMasked: broker.summary?.accountIdMasked ?? "****",
+          balance: hostedPortfolio.account.equity,
+          netLiquidation: hostedPortfolio.account.equity,
+          availableCash: hostedPortfolio.account.cash,
+          buyingPower: hostedPortfolio.account.buying_power,
+          currency: "USD",
+          status: "PAPER_CONNECTED",
+          lastSuccessfulSync: hostedPortfolio.account.as_of,
+          lastError: null,
+        }
+      : broker.summary,
     marketDataSource: liveMarket.source,
     marketDataStatus: liveMarket.status,
     marketDataLastUpdated: liveMarket.lastUpdated,
     marketDataAgeMs: liveMarket.ageMs,
   };
-  const livePositions = positions.map((position) => {
+  const synchronizedPositions = hostedPortfolio.positions.map((position) => ({
+    symbol: String(position.symbol),
+    name: "Alpaca PAPER position",
+    direction: String(position.side) === "SHORT" ? "SELL" : "BUY",
+    entry: `$${Number(position.entry_price).toFixed(2)}`,
+    current: `$${Number(position.current_price).toFixed(2)}`,
+    size: cash(Number(position.market_value)),
+    stop:
+      position.stop_loss == null
+        ? "NOT SET"
+        : `$${Number(position.stop_loss).toFixed(2)}`,
+    target:
+      position.take_profit == null
+        ? "NOT SET"
+        : `$${Number(position.take_profit).toFixed(2)}`,
+    pnl: Number(position.unrealized_pl),
+    pct: Number(Number(position.unrealized_pl_pct).toFixed(2)),
+    strategy: String(position.strategy_name ?? "External / Manual PAPER"),
+    status: String(position.status),
+  })) as typeof positions;
+  const livePositions = (
+    hostedPortfolio.source === "ALPACA_PAPER"
+      ? synchronizedPositions
+      : positions
+  ).map((position) => {
     const quote = liveMarket.quotes[position.symbol];
     if (!quote) return position;
     const entry = Number(position.entry.replace(/[$,]/g, ""));
@@ -456,6 +536,7 @@ export function TradingCommandCenter({
             broker={displayedBroker}
             persistence={persistence}
             livePositions={livePositions}
+            portfolio={hostedPortfolio}
           />
         ) : section === "Auto Trader" ? (
           <AutoTraderWorkspace emergencyLocked={locked} />
@@ -1509,25 +1590,32 @@ function Dashboard(p: {
   broker: BrokerDashboardData;
   persistence: DashboardPersistence;
   livePositions: typeof positions;
+  portfolio: HostedPortfolio;
 }) {
   const liveInvested = p.livePositions.reduce(
     (sum, position) =>
       sum + Number(position.size.replace(/[$,]/g, "")) + position.pnl,
     0,
   );
-  const liveProfitLoss = p.livePositions.reduce(
-    (sum, position) => sum + position.pnl,
-    0,
-  );
-  const availableCash = p.broker.summary?.availableCash ?? 48860.42;
-  const livePortfolioValue = availableCash + liveInvested;
+  const liveProfitLoss =
+    p.portfolio.account?.unrealized_pl ??
+    p.livePositions.reduce((sum, position) => sum + position.pnl, 0);
+  const availableCash =
+    p.portfolio.account?.cash ?? p.broker.summary?.availableCash ?? 48860.42;
+  const livePortfolioValue =
+    p.portfolio.account?.equity ?? availableCash + liveInvested;
   return (
     <>
       <section className="hero-grid">
         <div className="portfolio-hero">
           <div className="hero-copy">
             <span className="section-label">
-              TOTAL PORTFOLIO <em>{p.broker.marketDataSource}</em>
+              TOTAL PORTFOLIO{" "}
+              <em>
+                {p.portfolio.source === "ALPACA_PAPER"
+                  ? "ALPACA PAPER DATA"
+                  : "DEMO DATA"}
+              </em>
             </span>
             <div className="hero-value">
               {p.broker.marketDataSource === "ALPACA — IEX"
@@ -1560,9 +1648,28 @@ function Dashboard(p: {
                 note="58.0% liquid"
               />
               <FinancialMetric
-                label="INVESTED CAPITAL"
-                value={cash(liveInvested)}
-                note="Marked to current prices"
+                label="BUYING POWER"
+                value={cash(p.portfolio.account?.buying_power ?? 0)}
+                note="Alpaca PAPER"
+              />
+            </div>
+            <div className="hero-metrics">
+              <FinancialMetric
+                label="TODAY'S REALIZED P/L"
+                value={cash(p.portfolio.account?.realized_pl_today ?? 0)}
+                note="Broker portfolio history"
+              />
+              <FinancialMetric
+                label="OPEN EXPOSURE"
+                value={cash(p.portfolio.account?.open_exposure ?? liveInvested)}
+                note="Absolute market value"
+              />
+              <FinancialMetric
+                label="POSITION COUNT"
+                value={String(
+                  p.portfolio.account?.position_count ?? p.livePositions.length,
+                )}
+                note="Open PAPER positions"
               />
             </div>
           </div>
@@ -1578,7 +1685,7 @@ function Dashboard(p: {
             pause={p.pause}
             resume={p.resume}
           />
-          <RecentTrades />
+          <RecentTrades fills={p.portfolio.fills} />
           <RecommendationCard
             rec={p.rec}
             locked={p.locked}
@@ -1838,12 +1945,26 @@ function RiskProgress({
     </div>
   );
 }
-function RecentTrades() {
-  const rows = [
+function RecentTrades({ fills }: { fills: HostedPortfolio["fills"] }) {
+  const demoRows = [
     ["14:32", "NVDA", "BUY", "$2,100", "WIN", "+$82.40", "Momentum V2"],
     ["12:18", "MSFT", "BUY", "$1,850", "WIN", "+$46.10", "Quality Breakout"],
     ["10:06", "EUR/USD", "SELL", "$1,600", "LOSS", "−$26.30", "FX Trend"],
   ];
+  const rows = fills.length
+    ? fills.map((fill) => [
+        new Date(String(fill.executed_at)).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        String(fill.symbol),
+        String(fill.side),
+        cash(Number(fill.quantity) * Number(fill.price)),
+        "FILLED",
+        "—",
+        String(fill.strategy_name ?? "Alpaca PAPER"),
+      ])
+    : demoRows;
   return (
     <section className="module recent">
       <header className="module-head">
@@ -2031,7 +2152,7 @@ function PositionTable({
       <header className="module-head">
         <div>
           <span className="section-label">OPEN POSITIONS</span>
-          <p>4 positions · $13,900 paper exposure</p>
+          <p>{rows.length} positions · synchronized PAPER exposure</p>
         </div>
         <button className="text-button">VIEW PORTFOLIO →</button>
       </header>

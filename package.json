@@ -10,11 +10,11 @@
     "build": "vinext build",
     "build:vercel": "next build",
     "start:vercel": "next start",
-    "worker:start": "node hosted-worker/index.mjs",
+    "worker:start": "node --experimental-strip-types hosted-worker/index.mjs",
     "worker:check": "node --check hosted-worker/index.mjs",
     "start": "vinext start",
     "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "format:check": "prettier --check .",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
