@@ -194,6 +194,49 @@ test("Lightweight Charts observes a bounded responsive container", () => {
   );
 });
 
+test("TRADE-016.2 uses one shared responsive trading design system", () => {
+  const dashboard = fs.readFileSync(
+    new URL("../components/professional-market-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  const shell = fs.readFileSync(
+    new URL("../components/trading-command-center.tsx", import.meta.url),
+    "utf8",
+  );
+  const notifications = fs.readFileSync(
+    new URL("../components/notification-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const styles = fs.readFileSync(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  for (const token of [
+    "--type-display",
+    "--type-title",
+    "--type-heading",
+    "--type-body",
+    "--type-meta",
+    "--space-1",
+    "--space-8",
+    "--card-padding",
+    "--card-gap",
+  ])
+    assert.ok(styles.includes(token), `${token} should be shared`);
+  assert.match(dashboard, /EDIT LAYOUT/);
+  assert.match(dashboard, /chartDensity/);
+  assert.match(dashboard, /market-tabs/);
+  assert.match(dashboard, /DAILY P\/L/);
+  assert.match(shell, /backtest-chart-grid/);
+  assert.match(shell, /paper-trading-workspace/);
+  assert.match(shell, /risk-limit-groups/);
+  assert.match(shell, /DashboardNotificationSummary/);
+  assert.match(notifications, /notification-item severity-/);
+  assert.match(styles, /overflow-x: clip/);
+  assert.match(styles, /\.chart-density-tall \.lightweight-chart/);
+  assert.doesNotMatch(dashboard, /setTimeout\([^)]*resize/i);
+});
+
 test("TRADE-015.1 Railway ESM commands and explicit imports remain intact", () => {
   const pkg = JSON.parse(
     fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),

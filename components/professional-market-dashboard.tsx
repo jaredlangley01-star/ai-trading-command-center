@@ -81,7 +81,12 @@ export function ProfessionalMarketDashboard({
     [timeframe, setTimeframe] = useState("15Min"),
     [data, setData] = useState<DashboardData | null>(null),
     [filter, setFilter] = useState(""),
-    [now, setNow] = useState(new Date()),
+    [marketCategory, setMarketCategory] = useState<"INDICES" | "STOCKS">(
+      "INDICES",
+    ),
+    [customizing, setCustomizing] = useState(false),
+    [chartDensity, setChartDensity] = useState<"STANDARD" | "TALL">("STANDARD"),
+    [now, setNow] = useState<Date | null>(null),
     [drag, setDrag] = useState<string | null>(null);
   const load = useCallback(async () => {
     const response = await fetch(
@@ -103,6 +108,10 @@ export function ProfessionalMarketDashboard({
     return () => clearInterval(timer);
   }, []);
   const selected = positions.find((position) => position.symbol === symbol);
+  const dashboardProfitLoss = positions.reduce(
+    (total, position) => total + position.pnl,
+    0,
+  );
   const save = async (
     next: Partial<{
       layout: string[];
@@ -139,8 +148,8 @@ export function ProfessionalMarketDashboard({
   };
   const chart = (
     <section
-      className="module pro-chart-widget"
-      draggable
+      className={`module pro-chart-widget chart-density-${chartDensity.toLowerCase()} ${customizing ? "is-customizing" : ""}`}
+      draggable={customizing}
       onDragStart={() => setDrag("chart")}
       onDragOver={(e) => e.preventDefault()}
       onDrop={() => reorder("chart")}
@@ -190,13 +199,28 @@ export function ProfessionalMarketDashboard({
           ))}
         </div>
       </header>
+      {customizing && (
+        <div className="widget-customization" aria-label="Chart size controls">
+          <span>CHART SIZE</span>
+          {(["STANDARD", "TALL"] as const).map((density) => (
+            <button
+              key={density}
+              className={chartDensity === density ? "active" : ""}
+              onClick={() => setChartDensity(density)}
+            >
+              {density}
+            </button>
+          ))}
+          <small>Drag the card to reorder it with Market Overview.</small>
+        </div>
+      )}
       <TradingChart data={data} mode={mode} position={selected} />
     </section>
   );
   const markets = (
     <section
-      className="module market-overview-pro"
-      draggable
+      className={`module market-overview-pro ${customizing ? "is-customizing" : ""}`}
+      draggable={customizing}
       onDragStart={() => setDrag("markets")}
       onDragOver={(e) => e.preventDefault()}
       onDrop={() => reorder("markets")}
@@ -215,9 +239,27 @@ export function ProfessionalMarketDashboard({
           onChange={(e) => setFilter(e.target.value.toUpperCase())}
         />
       </header>
+      <div className="market-tabs" role="tablist" aria-label="Market category">
+        {(["INDICES", "STOCKS"] as const).map((category) => (
+          <button
+            key={category}
+            role="tab"
+            aria-selected={marketCategory === category}
+            className={marketCategory === category ? "active" : ""}
+            onClick={() => setMarketCategory(category)}
+          >
+            {category}
+          </button>
+        ))}
+      </div>
       <div className="market-grid">
         {(data?.marketOverview ?? [])
           .filter((item) => String(item.symbol).includes(filter))
+          .filter((item) =>
+            marketCategory === "INDICES"
+              ? ["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol))
+              : !["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol)),
+          )
           .map((item) => {
             const trade = item.latestTrade as
                 | Record<string, unknown>
@@ -235,8 +277,12 @@ export function ProfessionalMarketDashboard({
                 <b>{num(trade?.p || daily?.c).toFixed(2)}</b>
                 <span className={change >= 0 ? "positive" : "negative"}>
                   {change >= 0 ? "+" : ""}
-                  {change.toFixed(2)} · {pct.toFixed(2)}%
+                  {change.toFixed(2)}
                 </span>
+                <em className={change >= 0 ? "positive" : "negative"}>
+                  {pct >= 0 ? "+" : ""}
+                  {pct.toFixed(2)}%
+                </em>
                 <small>
                   Bid {num(quote?.bp).toFixed(2)} · Ask{" "}
                   {num(quote?.ap).toFixed(2)} · {trade?.t ? "CURRENT" : "STALE"}
@@ -244,98 +290,119 @@ export function ProfessionalMarketDashboard({
               </article>
             );
           })}
+        {!data?.marketOverview?.some((item) =>
+          marketCategory === "INDICES"
+            ? ["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol))
+            : !["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol)),
+        ) && (
+          <p className="market-empty">No supported instruments available.</p>
+        )}
       </div>
+      <button className="market-more">VIEW MORE MARKETS →</button>
     </section>
   );
   return (
     <div className="professional-dashboard">
-      <div className="account-conversion">
-        <div>
-          <span>ACCOUNT VALUE</span>
-          <strong>
-            $
-            {portfolioValue.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-            })}{" "}
-            USD
-          </strong>
-          {data &&
-            data.conversion.currency !== "USD" &&
-            data.conversion.rate > 0 && (
-              <b>
-                ≈{" "}
-                {(portfolioValue * data.conversion.rate).toLocaleString(
-                  undefined,
-                  { style: "currency", currency: data.conversion.currency },
-                )}{" "}
-                {data.conversion.currency}
-              </b>
-            )}
-          <small>
-            Display conversion only ·{" "}
-            {data?.conversion.timestamp ?? "rate unavailable"}
-          </small>
-        </div>
-        <label>
-          DISPLAY CURRENCY
-          <select
-            value={data?.preferences.display_currency ?? "USD"}
-            onChange={(e) => void save({ displayCurrency: e.target.value })}
-          >
-            {["USD", "ZAR", "GBP", "EUR"].map((currency) => (
-              <option key={currency}>{currency}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          onClick={() =>
-            void save({
-              layout: [
-                "status",
-                "account",
-                "chart",
-                "positions",
-                "risk",
-                "markets",
-                "opportunities",
-                "health",
-              ],
-            })
-          }
-        >
-          Restore Default Layout
-        </button>
-      </div>
-      <div className="trading-clocks">
-        {clocks.map(([city, zone]) => (
-          <div key={zone}>
-            <span>{city}</span>
-            <b>
-              {new Intl.DateTimeFormat("en-GB", {
-                timeZone: zone,
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              }).format(now)}
-            </b>
-            <small>
-              {zone}
-              <br />
-              {new Intl.DateTimeFormat("en-GB", {
-                timeZone: zone,
-                dateStyle: "medium",
-              }).format(now)}
-            </small>
+      <div className="dashboard-command-strip">
+        <div className="account-conversion">
+          <label>
+            ACCOUNT CURRENCY
+            <select
+              value={data?.preferences.display_currency ?? "USD"}
+              onChange={(e) => void save({ displayCurrency: e.target.value })}
+            >
+              {["USD", "ZAR", "GBP", "EUR"].map((currency) => (
+                <option key={currency}>{currency}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <span>CONVERTED PORTFOLIO</span>
+            <strong>
+              {data &&
+              data.conversion.currency !== "USD" &&
+              data.conversion.rate > 0
+                ? (portfolioValue * data.conversion.rate).toLocaleString(
+                    undefined,
+                    {
+                      style: "currency",
+                      currency: data.conversion.currency,
+                    },
+                  )
+                : `$${portfolioValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+            </strong>
           </div>
-        ))}
+          <div>
+            <span>DAILY P/L</span>
+            <strong
+              className={dashboardProfitLoss >= 0 ? "positive" : "negative"}
+            >
+              {dashboardProfitLoss >= 0 ? "+" : "−"}$
+              {Math.abs(dashboardProfitLoss).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
+            </strong>
+          </div>
+        </div>
+        <div className="trading-clocks">
+          {clocks.map(([city, zone], index) => (
+            <div className={index === 0 ? "primary-clock" : ""} key={zone}>
+              <span>{city}</span>
+              <b>
+                {now
+                  ? new Intl.DateTimeFormat("en-GB", {
+                      timeZone: zone,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    }).format(now)
+                  : "--:--:--"}
+              </b>
+            </div>
+          ))}
+        </div>
+        <button
+          className="layout-edit"
+          aria-pressed={customizing}
+          onClick={() => setCustomizing((value) => !value)}
+        >
+          {customizing ? "DONE" : "EDIT LAYOUT"}
+        </button>
+        {customizing && (
+          <button
+            className="layout-reset"
+            onClick={() =>
+              void save({
+                layout: [
+                  "status",
+                  "account",
+                  "chart",
+                  "positions",
+                  "risk",
+                  "markets",
+                  "opportunities",
+                  "health",
+                ],
+              })
+            }
+          >
+            RESTORE LAYOUT
+          </button>
+        )}
       </div>
-      {order.map((widget) =>
-        widget === "chart" ? (
-          <div key="chart">{chart}</div>
-        ) : (
-          <div key="markets">{markets}</div>
-        ),
-      )}
+      <div className="professional-widget-grid">
+        {order.map((widget) =>
+          widget === "chart" ? (
+            <div className="professional-chart-slot" key="chart">
+              {chart}
+            </div>
+          ) : (
+            <div className="professional-markets-slot" key="markets">
+              {markets}
+            </div>
+          ),
+        )}
+      </div>
     </div>
   );
 }

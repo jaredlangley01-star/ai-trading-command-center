@@ -139,7 +139,7 @@ export function NotificationSettingsWorkspace() {
     );
   };
   return (
-    <div className="strategy-workspace">
+    <div className="strategy-workspace notification-settings-workspace">
       <section className="module">
         <header className="module-head">
           <div>
@@ -367,8 +367,8 @@ export function NotificationCenterWorkspace() {
     await refresh();
   };
   return (
-    <div className="strategy-workspace">
-      <section className="module">
+    <div className="strategy-workspace notification-center-workspace">
+      <section className="module notification-center-panel">
         <header className="module-head">
           <div>
             <span className="section-label">NOTIFICATION CENTER</span>
@@ -398,28 +398,93 @@ export function NotificationCenterWorkspace() {
             <option>CRITICAL</option>
           </select>
         </div>
-        {items.map((item) => (
-          <article
-            className={`health-item ${item.read ? "" : "active"}`}
-            key={item.id}
-          >
-            <div>
-              <span className="section-label">
-                {item.category} · {item.severity} · {item.status}
+        <div className="notification-list">
+          {items.map((item) => (
+            <article
+              className={`notification-item severity-${item.severity.toLowerCase()} ${item.read ? "is-read" : "is-unread"}`}
+              key={item.id}
+            >
+              <span className="notification-severity-icon" aria-hidden="true">
+                {item.severity === "CRITICAL"
+                  ? "!"
+                  : item.severity === "WARNING"
+                    ? "△"
+                    : "i"}
               </span>
-              <h3>{item.title}</h3>
-              <p>{item.body}</p>
-              <small>{new Date(item.created_at).toLocaleString()}</small>
+              <div>
+                <div className="notification-meta">
+                  <span>{item.category}</span>
+                  <span>{item.severity}</span>
+                  <span>DELIVERY: {item.status}</span>
+                  {!item.read && <b>UNREAD</b>}
+                </div>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+                <small>{new Date(item.created_at).toLocaleString()}</small>
+              </div>
+              <div>
+                <a href={item.deep_link}>Open</a>
+                {!item.read && (
+                  <button onClick={() => void mark([item.id])}>
+                    Mark read
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+          {!items.length && (
+            <div className="notification-empty">
+              <b>ALL CLEAR</b>
+              <p>No notifications match the selected filters.</p>
             </div>
-            <div>
-              <a href={item.deep_link}>Open</a>
-              {!item.read && (
-                <button onClick={() => void mark([item.id])}>Mark read</button>
-              )}
-            </div>
-          </article>
-        ))}
+          )}
+        </div>
       </section>
     </div>
+  );
+}
+
+export function DashboardNotificationSummary() {
+  const [items, setItems] = useState<CenterItem[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/notifications", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => response.json())
+      .then((data: { notifications?: CenterItem[] }) =>
+        setItems((data.notifications ?? []).slice(0, 3)),
+      )
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  return (
+    <section className="module dashboard-notifications">
+      <header className="module-head">
+        <div>
+          <span className="section-label">NOTIFICATIONS</span>
+          <p>Latest owner alerts and delivery state</p>
+        </div>
+        <span className="status-badge">
+          {items.filter((item) => !item.read).length} UNREAD
+        </span>
+      </header>
+      <div className="dashboard-notification-list">
+        {items.map((item) => (
+          <article
+            key={item.id}
+            className={`severity-${item.severity.toLowerCase()}`}
+          >
+            <b>{item.title}</b>
+            <span>
+              {item.category} · {item.status}
+            </span>
+            <time>{new Date(item.created_at).toLocaleTimeString()}</time>
+          </article>
+        ))}
+        {!items.length && <p>No current notifications.</p>}
+      </div>
+    </section>
   );
 }

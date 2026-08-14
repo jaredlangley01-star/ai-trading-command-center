@@ -18,6 +18,7 @@ import type { DashboardPersistence } from "@/src/lib/supabase/repository";
 import type { BrokerDashboardData } from "@/src/services/broker/dashboard";
 import { LogoutButton } from "./logout-button";
 import {
+  DashboardNotificationSummary,
   NotificationCenterWorkspace,
   NotificationSettingsWorkspace,
 } from "./notification-workspace";
@@ -786,7 +787,7 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
     }
   };
   return (
-    <div className="broker-workspace big-money-workspace">
+    <div className="broker-workspace big-money-workspace workspace-page">
       <section className="module broker-panel">
         <header className="module-head">
           <div>
@@ -879,6 +880,14 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
                   </td>
                 </tr>
               ))}
+              {!items.length && (
+                <tr>
+                  <td colSpan={12} className="table-empty">
+                    No current Big Money recommendations. Generate PAPER
+                    research to begin.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -936,7 +945,9 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
                   <td>
                     <b>{item.symbol}</b>
                   </td>
-                  <td>{item.direction}</td>
+                  <td>
+                    <StatusBadge status={item.direction} />
+                  </td>
                   <td>{item.opportunity_score}/100</td>
                   <td>{item.confidence}/100 data quality</td>
                   <td>${Number(item.current_price).toFixed(2)}</td>
@@ -953,6 +964,13 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
                   </td>
                 </tr>
               ))}
+              {!intelligence.length && (
+                <tr>
+                  <td colSpan={10} className="table-empty">
+                    No ranked opportunities are available yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1872,8 +1890,8 @@ function BacktestingWorkspace() {
     | undefined;
   const metrics = latest?.metrics ?? {};
   return (
-    <div className="workspace-page">
-      <section className="module">
+    <div className="workspace-page backtesting-workspace">
+      <section className="module backtest-config-panel">
         <header className="module-head">
           <div>
             <span className="section-label">HISTORICAL SIMULATION</span>
@@ -1960,7 +1978,7 @@ function BacktestingWorkspace() {
           </button>
         </footer>
       </section>
-      <section className="module">
+      <section className="module backtest-analysis-panel">
         <header className="module-head">
           <div>
             <span className="section-label">PERFORMANCE SUMMARY</span>
@@ -1972,9 +1990,9 @@ function BacktestingWorkspace() {
         </header>
         <div className="hero-metrics">
           <FinancialMetric
-            label="ENDING CAPITAL"
-            value={cash(metrics.endingCapital ?? 0)}
-            note="Historical simulation"
+            label="NET P/L"
+            value={cash(metrics.netProfitLoss ?? 0)}
+            note={`Ending ${cash(metrics.endingCapital ?? 0)}`}
           />
           <FinancialMetric
             label="TOTAL RETURN"
@@ -1997,21 +2015,23 @@ function BacktestingWorkspace() {
             note={cash(metrics.maximumDrawdown ?? 0)}
           />
           <FinancialMetric
-            label="SHARPE"
-            value={(metrics.sharpeRatio ?? 0).toFixed(2)}
-            note="Trade-return estimate"
+            label="TRADES"
+            value={String(metrics.totalTrades ?? 0)}
+            note={`Sharpe ${(metrics.sharpeRatio ?? 0).toFixed(2)}`}
           />
         </div>
-        <BacktestCurve
-          points={latest?.equity_curve ?? []}
-          label="EQUITY CURVE"
-          valueKey="equity"
-        />
-        <BacktestCurve
-          points={latest?.drawdown_curve ?? []}
-          label="DRAWDOWN"
-          valueKey="drawdownPct"
-        />
+        <div className="backtest-chart-grid">
+          <BacktestCurve
+            points={latest?.equity_curve ?? []}
+            label="EQUITY CURVE"
+            valueKey="equity"
+          />
+          <BacktestCurve
+            points={latest?.drawdown_curve ?? []}
+            label="DRAWDOWN"
+            valueKey="drawdownPct"
+          />
+        </div>
       </section>
       <section className="module recent">
         <header className="module-head">
@@ -2021,7 +2041,7 @@ function BacktestingWorkspace() {
           </div>
         </header>
         <div className="table-scroll">
-          <table>
+          <table className="position-table">
             <thead>
               <tr>
                 {[
@@ -2069,24 +2089,57 @@ function BacktestingWorkspace() {
             </p>
           </div>
         </header>
-        {runs.map((item) => {
-          const m = (item.metrics ?? {}) as Record<string, number>;
-          return (
-            <div className="health-item" key={String(item.id)}>
-              <span>
-                {String(item.strategy_name)} · {String(item.data_timeframe)}
-              </span>
-              <b>
-                {String(item.status)} · Return{" "}
-                {(m.totalReturnPct ?? 0).toFixed(2)}% · Win{" "}
-                {(m.winRate ?? 0).toFixed(1)}% · PF{" "}
-                {(m.profitFactor ?? 0).toFixed(2)} · DD{" "}
-                {(m.maximumDrawdownPct ?? 0).toFixed(2)}% · Sharpe{" "}
-                {(m.sharpeRatio ?? 0).toFixed(2)} · {m.totalTrades ?? 0} trades
-              </b>
-            </div>
-          );
-        })}
+        <div className="table-scroll">
+          <table className="position-table">
+            <thead>
+              <tr>
+                {[
+                  "STRATEGY",
+                  "TIMEFRAME",
+                  "STATUS",
+                  "RETURN",
+                  "WIN RATE",
+                  "PROFIT FACTOR",
+                  "DRAWDOWN",
+                  "SHARPE",
+                  "TRADES",
+                ].map((heading) => (
+                  <th key={heading}>{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((item) => {
+                const m = (item.metrics ?? {}) as Record<string, number>;
+                return (
+                  <tr key={String(item.id)}>
+                    <td>
+                      <b>{String(item.strategy_name)}</b>
+                    </td>
+                    <td>{String(item.data_timeframe)}</td>
+                    <td>
+                      <StatusBadge status={String(item.status)} />
+                    </td>
+                    <td>{(m.totalReturnPct ?? 0).toFixed(2)}%</td>
+                    <td>{(m.winRate ?? 0).toFixed(1)}%</td>
+                    <td>{(m.profitFactor ?? 0).toFixed(2)}</td>
+                    <td>{(m.maximumDrawdownPct ?? 0).toFixed(2)}%</td>
+                    <td>{(m.sharpeRatio ?? 0).toFixed(2)}</td>
+                    <td>{m.totalTrades ?? 0}</td>
+                  </tr>
+                );
+              })}
+              {!runs.length && (
+                <tr>
+                  <td className="table-empty" colSpan={9}>
+                    No historical runs yet. Configure and queue a PAPER
+                    simulation above.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );
@@ -2130,18 +2183,40 @@ function RiskSettingsWorkspace({ initial }: { initial: RiskSettings }) {
   const [settings, setSettings] = useState(initial),
     [status, setStatus] = useState(""),
     [saving, setSaving] = useState(false);
-  const fields: Array<[keyof RiskSettings, string, string]> = [
-    ["maximumCapitalPerTrade", "MAX CAPITAL / TRADE", "$"],
-    ["maximumRiskPerTrade", "MAX LOSS / TRADE", "$"],
-    ["dailyMaximumLoss", "DAILY MAXIMUM LOSS", "$"],
-    ["dailyProfitTarget", "DAILY PROFIT TARGET", "$"],
-    ["maximumTradesPerDay", "MAX TRADES / DAY", "count"],
-    ["maximumConcurrentPositions", "MAX CONCURRENT POSITIONS", "count"],
-    ["maximumPortfolioExposure", "MAX PORTFOLIO EXPOSURE", "%"],
-    ["maximumExposurePerAsset", "MAX EXPOSURE / ASSET", "%"],
-    ["maximumPortfolioDrawdown", "MAX PORTFOLIO DRAWDOWN", "%"],
-    ["autoTraderAllocatedCapital", "AUTO TRADER ALLOCATION", "$"],
-    ["bigMoneyApprovalThreshold", "BIG MONEY APPROVAL SCORE", "/100"],
+  const groups: Array<{
+    title: string;
+    description: string;
+    fields: Array<[keyof RiskSettings, string, string]>;
+  }> = [
+    {
+      title: "Portfolio Limits",
+      description: "Exposure, drawdown and allocated capital",
+      fields: [
+        ["maximumPortfolioExposure", "MAX PORTFOLIO EXPOSURE", "%"],
+        ["maximumExposurePerAsset", "MAX EXPOSURE / ASSET", "%"],
+        ["maximumPortfolioDrawdown", "MAX PORTFOLIO DRAWDOWN", "%"],
+        ["autoTraderAllocatedCapital", "AUTO TRADER ALLOCATION", "$"],
+      ],
+    },
+    {
+      title: "Daily Limits",
+      description: "Session loss, profit and activity boundaries",
+      fields: [
+        ["dailyMaximumLoss", "DAILY MAXIMUM LOSS", "$"],
+        ["dailyProfitTarget", "DAILY PROFIT TARGET", "$"],
+        ["maximumTradesPerDay", "MAX TRADES / DAY", "count"],
+      ],
+    },
+    {
+      title: "Trade Limits",
+      description: "Per-position capital, loss and concurrency",
+      fields: [
+        ["maximumCapitalPerTrade", "MAX CAPITAL / TRADE", "$"],
+        ["maximumRiskPerTrade", "MAX LOSS / TRADE", "$"],
+        ["maximumConcurrentPositions", "MAX CONCURRENT POSITIONS", "count"],
+        ["bigMoneyApprovalThreshold", "BIG MONEY APPROVAL SCORE", "/100"],
+      ],
+    },
   ];
   const save = async () => {
     setSaving(true);
@@ -2170,28 +2245,40 @@ function RiskSettingsWorkspace({ initial }: { initial: RiskSettings }) {
           </div>
           <StatusBadge status="PAPER ONLY" />
         </header>
-        <div className="risk-settings-grid">
-          {fields.map(([key, label, suffix]) => (
-            <label key={key}>
-              <span>{label}</span>
-              <div>
-                <input
-                  aria-label={label}
-                  type="number"
-                  min="0"
-                  max={suffix === "%" || suffix === "/100" ? 100 : undefined}
-                  step={suffix === "%" ? "0.1" : "1"}
-                  value={settings[key] as number}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      [key]: Number(event.target.value),
-                    })
-                  }
-                />
-                <b>{suffix}</b>
+        <div className="risk-limit-groups">
+          {groups.map((group) => (
+            <section className="risk-limit-group" key={group.title}>
+              <header>
+                <h3>{group.title}</h3>
+                <p>{group.description}</p>
+              </header>
+              <div className="risk-settings-grid">
+                {group.fields.map(([key, label, suffix]) => (
+                  <label key={key}>
+                    <span>{label}</span>
+                    <div>
+                      <input
+                        aria-label={label}
+                        type="number"
+                        min="0"
+                        max={
+                          suffix === "%" || suffix === "/100" ? 100 : undefined
+                        }
+                        step={suffix === "%" ? "0.1" : "1"}
+                        value={settings[key] as number}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            [key]: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <b>{suffix}</b>
+                    </div>
+                  </label>
+                ))}
               </div>
-            </label>
+            </section>
           ))}
         </div>
         <div className="risk-callout">
@@ -2346,6 +2433,7 @@ function Dashboard(p: {
             reset={() => p.setModal("reset")}
           />
           <SystemHealth broker={p.broker} persistence={p.persistence} />
+          <DashboardNotificationSummary />
           <Allocation />
         </aside>
       </div>
@@ -3045,7 +3133,7 @@ function BrokerWorkspace({
     }
   };
   return (
-    <div className="broker-workspace">
+    <div className="broker-workspace paper-trading-workspace">
       <section className="module broker-panel">
         <header className="module-head">
           <div>
