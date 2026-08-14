@@ -2,6 +2,7 @@ import type {
   Asset,
   CombinedOpportunity,
   StrategyDirection,
+  StrategySignal,
 } from "../../domain/models.ts";
 import { MarketDataEngine } from "../market-data-engine.ts";
 import { mean, percentageMomentum, realizedVolatility } from "./indicators.ts";
@@ -17,6 +18,42 @@ export const defaultStrategies = () => [
   new BreakoutStrategy(),
   new MeanReversionStrategy(),
 ];
+
+export function combineStrategySignals(signals: StrategySignal[]) {
+  const buys = signals.filter((signal) => signal.direction === "BUY");
+  const sells = signals.filter((signal) => signal.direction === "SELL");
+  const buyWeight = buys.reduce((sum, signal) => sum + signal.score, 0);
+  const sellWeight = sells.reduce((sum, signal) => sum + signal.score, 0);
+  const difference = Math.abs(buyWeight - sellWeight);
+  let direction: StrategyDirection = "NO_TRADE";
+  if (difference >= 15 && Math.max(buyWeight, sellWeight) >= 55)
+    direction = buyWeight > sellWeight ? "BUY" : "SELL";
+  const supporting =
+    direction === "BUY" ? buys : direction === "SELL" ? sells : [];
+  const conflicting =
+    direction === "BUY"
+      ? sells
+      : direction === "SELL"
+        ? buys
+        : [...buys, ...sells];
+  const dominantWeight = Math.max(buyWeight, sellWeight);
+  const score =
+    direction === "NO_TRADE"
+      ? Math.min(50, Math.round(difference / Math.max(1, signals.length)))
+      : Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round(
+              dominantWeight / Math.max(1, supporting.length) -
+                Math.min(buyWeight, sellWeight) /
+                  Math.max(1, conflicting.length) /
+                  2,
+            ),
+          ),
+        );
+  return { direction, score, supporting, conflicting };
+}
 
 export class CombinedOpportunityEngine {
   private marketData: MarketDataEngine;
@@ -72,42 +109,11 @@ export class CombinedOpportunityEngine {
       timestamp,
     };
     const signals = this.strategies.map((strategy) => strategy.evaluate(input));
-    const buys = signals.filter((signal) => signal.direction === "BUY");
-    const sells = signals.filter((signal) => signal.direction === "SELL");
-    const buyWeight = buys.reduce((sum, signal) => sum + signal.score, 0);
-    const sellWeight = sells.reduce((sum, signal) => sum + signal.score, 0);
-    let finalRecommendation: StrategyDirection = "NO_TRADE";
-    const difference = Math.abs(buyWeight - sellWeight);
-    if (difference >= 15 && Math.max(buyWeight, sellWeight) >= 55)
-      finalRecommendation = buyWeight > sellWeight ? "BUY" : "SELL";
-    const supporting =
-      finalRecommendation === "BUY"
-        ? buys
-        : finalRecommendation === "SELL"
-          ? sells
-          : [];
-    const conflicting =
-      finalRecommendation === "BUY"
-        ? sells
-        : finalRecommendation === "SELL"
-          ? buys
-          : [...buys, ...sells];
-    const dominantWeight = Math.max(buyWeight, sellWeight);
-    const combinedScore =
-      finalRecommendation === "NO_TRADE"
-        ? Math.min(50, Math.round(difference / Math.max(1, signals.length)))
-        : Math.max(
-            0,
-            Math.min(
-              100,
-              Math.round(
-                dominantWeight / Math.max(1, supporting.length) -
-                  Math.min(buyWeight, sellWeight) /
-                    Math.max(1, conflicting.length) /
-                    2,
-              ),
-            ),
-          );
+    const combined = combineStrategySignals(signals);
+    const finalRecommendation = combined.direction;
+    const supporting = combined.supporting;
+    const conflicting = combined.conflicting;
+    const combinedScore = combined.score;
     const closes = snapshot.candles.map((candle) => candle.close);
     const shortAverage = closes.length ? mean(closes.slice(-10)) : 0;
     const longAverage = closes.length ? mean(closes.slice(-30)) : 0;

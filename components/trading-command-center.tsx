@@ -546,6 +546,8 @@ export function TradingCommandCenter({
           <StrategyWorkspace page={section} />
         ) : section === "Risk Manager" ? (
           <RiskSettingsWorkspace initial={persistence.riskSettings} />
+        ) : section === "Backtesting" ? (
+          <BacktestingWorkspace />
         ) : section === "Paper Trading" || section === "Settings" ? (
           <BrokerWorkspace broker={displayedBroker} locked={locked} />
         ) : (
@@ -1485,6 +1487,315 @@ function StrategyWorkspace({ page }: { page: string }) {
     </div>
   );
 }
+function BacktestingWorkspace() {
+  const [config, setConfig] = useState({
+    strategy: "Combined Opportunity",
+    symbol: "AAPL",
+    start: "2025-01-01",
+    end: "2025-12-31",
+    timeframe: "1Day",
+    startingCapital: 100000,
+    riskProfile: "Recommended",
+    positionSizePct: 10,
+    stopLossPct: 2,
+    takeProfitPct: 4,
+    maximumConcurrentPositions: 1,
+    slippageBps: 5,
+    commissionPerTrade: 0,
+  });
+  const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]);
+  const [status, setStatus] = useState("Ready");
+  const refresh = async () => {
+    const response = await fetch("/api/backtests", { cache: "no-store" });
+    if (response.ok) setRuns(((await response.json()) as { runs: [] }).runs);
+  };
+  useEffect(() => {
+    const initial = window.setTimeout(refresh, 0);
+    const timer = window.setInterval(refresh, 3000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, []);
+  const run = async () => {
+    setStatus("Queuing historical simulation…");
+    const response = await fetch("/api/backtests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    const payload = (await response.json()) as { error?: string };
+    setStatus(
+      response.ok
+        ? "Queued for the hosted trading engine"
+        : (payload.error ?? "Queue failed"),
+    );
+    await refresh();
+  };
+  const latest = runs[0] as
+    | (Record<string, unknown> & {
+        metrics?: Record<string, number>;
+        equity_curve?: Array<{ time: string; equity: number }>;
+        drawdown_curve?: Array<{ time: string; drawdownPct: number }>;
+        backtest_trades?: Array<Record<string, unknown>>;
+      })
+    | undefined;
+  const metrics = latest?.metrics ?? {};
+  return (
+    <div className="workspace-page">
+      <section className="module">
+        <header className="module-head">
+          <div>
+            <span className="section-label">HISTORICAL SIMULATION</span>
+            <p>Past performance does not guarantee future results.</p>
+          </div>
+          <StatusBadge status={String(latest?.status ?? "READY")} />
+        </header>
+        <div className="settings-grid">
+          {[
+            [
+              "strategy",
+              "STRATEGY",
+              [
+                "Momentum",
+                "Breakout",
+                "Trend Following",
+                "Mean Reversion",
+                "Combined Opportunity",
+              ],
+            ],
+            [
+              "timeframe",
+              "TIMEFRAME",
+              ["1Min", "5Min", "15Min", "1Hour", "1Day"],
+            ],
+            [
+              "riskProfile",
+              "RISK PROFILE",
+              ["Conservative", "Recommended", "Aggressive"],
+            ],
+          ].map(([key, label, options]) => (
+            <label key={String(key)}>
+              <span>{String(label)}</span>
+              <select
+                value={String(config[key as keyof typeof config])}
+                onChange={(event) =>
+                  setConfig({ ...config, [String(key)]: event.target.value })
+                }
+              >
+                {(options as string[]).map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {[
+            ["symbol", "SYMBOL", "text"],
+            ["start", "START", "date"],
+            ["end", "END", "date"],
+            ["startingCapital", "STARTING CAPITAL", "number"],
+            ["positionSizePct", "POSITION SIZE %", "number"],
+            ["stopLossPct", "STOP LOSS %", "number"],
+            ["takeProfitPct", "TAKE PROFIT %", "number"],
+            [
+              "maximumConcurrentPositions",
+              "MAX CONCURRENT POSITIONS",
+              "number",
+            ],
+            ["slippageBps", "SLIPPAGE BPS", "number"],
+            ["commissionPerTrade", "COMMISSION / SIDE", "number"],
+          ].map(([key, label, type]) => (
+            <label key={key}>
+              <span>{label}</span>
+              <input
+                type={type}
+                value={config[key as keyof typeof config]}
+                onChange={(event) =>
+                  setConfig({
+                    ...config,
+                    [key]:
+                      type === "number"
+                        ? Number(event.target.value)
+                        : event.target.value,
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <footer className="risk-settings-actions">
+          <span role="status">{status}</span>
+          <button className="button primary" onClick={run}>
+            RUN HOSTED BACKTEST
+          </button>
+        </footer>
+      </section>
+      <section className="module">
+        <header className="module-head">
+          <div>
+            <span className="section-label">PERFORMANCE SUMMARY</span>
+            <p>
+              Alpaca IEX historical OHLCV · deterministic assumptions shown
+              above
+            </p>
+          </div>
+        </header>
+        <div className="hero-metrics">
+          <FinancialMetric
+            label="ENDING CAPITAL"
+            value={cash(metrics.endingCapital ?? 0)}
+            note="Historical simulation"
+          />
+          <FinancialMetric
+            label="TOTAL RETURN"
+            value={`${(metrics.totalReturnPct ?? 0).toFixed(2)}%`}
+            note="Not a forecast"
+          />
+          <FinancialMetric
+            label="WIN RATE"
+            value={`${(metrics.winRate ?? 0).toFixed(1)}%`}
+            note={`${metrics.totalTrades ?? 0} trades`}
+          />
+          <FinancialMetric
+            label="PROFIT FACTOR"
+            value={(metrics.profitFactor ?? 0).toFixed(2)}
+            note="Gross wins / losses"
+          />
+          <FinancialMetric
+            label="MAX DRAWDOWN"
+            value={`${(metrics.maximumDrawdownPct ?? 0).toFixed(2)}%`}
+            note={cash(metrics.maximumDrawdown ?? 0)}
+          />
+          <FinancialMetric
+            label="SHARPE"
+            value={(metrics.sharpeRatio ?? 0).toFixed(2)}
+            note="Trade-return estimate"
+          />
+        </div>
+        <BacktestCurve
+          points={latest?.equity_curve ?? []}
+          label="EQUITY CURVE"
+          valueKey="equity"
+        />
+        <BacktestCurve
+          points={latest?.drawdown_curve ?? []}
+          label="DRAWDOWN"
+          valueKey="drawdownPct"
+        />
+      </section>
+      <section className="module recent">
+        <header className="module-head">
+          <div>
+            <span className="section-label">SIMULATED TRADE HISTORY</span>
+            <p>Analysis only · no broker orders</p>
+          </div>
+        </header>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {[
+                  "SYMBOL",
+                  "STRATEGY",
+                  "SIDE",
+                  "ENTRY",
+                  "EXIT",
+                  "QTY",
+                  "NET P/L",
+                  "RETURN",
+                  "REASON",
+                ].map((item) => (
+                  <th key={item}>{item}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(latest?.backtest_trades ?? []).map((trade, index) => (
+                <tr key={index}>
+                  <td>{String(trade.symbol)}</td>
+                  <td>{String(trade.strategy)}</td>
+                  <td>{String(trade.direction)}</td>
+                  <td>{String(trade.entry_price)}</td>
+                  <td>{String(trade.exit_price)}</td>
+                  <td>{String(trade.quantity)}</td>
+                  <td>{cash(Number(trade.net_pl))}</td>
+                  <td>{Number(trade.return_pct).toFixed(2)}%</td>
+                  <td>{String(trade.exit_reason)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="module">
+        <header className="module-head">
+          <div>
+            <span className="section-label">
+              HISTORICAL RUNS & STRATEGY COMPARISON
+            </span>
+            <p>
+              Compare return, win rate, profit factor, drawdown, Sharpe, and
+              trade count together.
+            </p>
+          </div>
+        </header>
+        {runs.map((item) => {
+          const m = (item.metrics ?? {}) as Record<string, number>;
+          return (
+            <div className="health-item" key={String(item.id)}>
+              <span>
+                {String(item.strategy_name)} · {String(item.data_timeframe)}
+              </span>
+              <b>
+                {String(item.status)} · Return{" "}
+                {(m.totalReturnPct ?? 0).toFixed(2)}% · Win{" "}
+                {(m.winRate ?? 0).toFixed(1)}% · PF{" "}
+                {(m.profitFactor ?? 0).toFixed(2)} · DD{" "}
+                {(m.maximumDrawdownPct ?? 0).toFixed(2)}% · Sharpe{" "}
+                {(m.sharpeRatio ?? 0).toFixed(2)} · {m.totalTrades ?? 0} trades
+              </b>
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+function BacktestCurve({
+  points,
+  label,
+  valueKey,
+}: {
+  points: Array<Record<string, number | string>>;
+  label: string;
+  valueKey: string;
+}) {
+  const values = points.map((point) => Number(point[valueKey] ?? 0));
+  const min = Math.min(...values, 0),
+    max = Math.max(...values, 1),
+    span = Math.max(1, max - min);
+  const path = values
+    .map(
+      (value, index) =>
+        `${index ? "L" : "M"} ${(index / Math.max(1, values.length - 1)) * 100} ${38 - ((value - min) / span) * 36}`,
+    )
+    .join(" ");
+  return (
+    <div className="portfolio-chart">
+      <span className="section-label">{label}</span>
+      <svg
+        viewBox="0 0 100 40"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={label}
+      >
+        <path d={path} fill="none" stroke="currentColor" strokeWidth="0.8" />
+      </svg>
+    </div>
+  );
+}
+
 function RiskSettingsWorkspace({ initial }: { initial: RiskSettings }) {
   const [settings, setSettings] = useState(initial),
     [status, setStatus] = useState(""),

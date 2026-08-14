@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { ProtectiveExitService } from "../src/services/broker/protective-exit-service.ts";
+import { fetchAlpacaHistoricalBars } from "../src/services/backtesting/historical-data.ts";
+import { runHistoricalBacktest } from "../src/services/backtesting/engine.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
@@ -305,8 +307,95 @@ async function synchronizeOwnerPortfolio(
     );
 }
 
+async function processBacktestJob() {
+  const staleBefore = new Date(Date.now() - 10 * 60_000).toISOString();
+  await db
+    .from("backtests")
+    .update({ status: "QUEUED", error: "WORKER_RESTART_RECOVERY" })
+    .eq("status", "RUNNING")
+    .lt("started_at", staleBefore);
+  const { data: queued } = await db
+    .from("backtests")
+    .select("id,user_id,configuration")
+    .eq("status", "QUEUED")
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  if (!queued) return;
+  const { data: claimed } = await db
+    .from("backtests")
+    .update({
+      status: "RUNNING",
+      progress: 5,
+      started_at: new Date().toISOString(),
+      error: null,
+    })
+    .eq("id", queued.id)
+    .eq("status", "QUEUED")
+    .select("id")
+    .maybeSingle();
+  if (!claimed) return;
+  try {
+    const config = queued.configuration;
+    const candles = await fetchAlpacaHistoricalBars(
+      config.symbol,
+      config.start,
+      config.end,
+      config.timeframe,
+    );
+    await db.from("backtests").update({ progress: 45 }).eq("id", queued.id);
+    const result = runHistoricalBacktest(config, candles);
+    await db.from("backtest_trades").upsert(
+      result.trades.map((trade, index) => ({
+        backtest_id: queued.id,
+        user_id: queued.user_id,
+        trade_index: index,
+        symbol: trade.symbol,
+        strategy: trade.strategy,
+        direction: trade.direction,
+        entry_timestamp: trade.entryTimestamp,
+        entry_price: trade.entryPrice,
+        exit_timestamp: trade.exitTimestamp,
+        exit_price: trade.exitPrice,
+        quantity: trade.quantity,
+        stop_price: trade.stop,
+        target_price: trade.target,
+        gross_pl: trade.grossPl,
+        costs: trade.costs,
+        net_pl: trade.netPl,
+        return_pct: trade.returnPct,
+        exit_reason: trade.exitReason,
+        duration_ms: trade.durationMs,
+      })),
+      { onConflict: "backtest_id,trade_index" },
+    );
+    await db
+      .from("backtests")
+      .update({
+        status: "COMPLETED",
+        progress: 100,
+        metrics: result.metrics,
+        assumptions: result.assumptions,
+        equity_curve: result.equityCurve,
+        drawdown_curve: result.drawdownCurve,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", queued.id);
+  } catch (error) {
+    await db
+      .from("backtests")
+      .update({
+        status: "FAILED",
+        error: error instanceof Error ? error.message : "BACKTEST_FAILED",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", queued.id);
+  }
+}
+
 async function cycle() {
   const startedAt = new Date().toISOString();
+  await processBacktestJob();
   const { data: owners, error } = await db.from("profiles").select("id");
   if (error) throw error;
   const [account, positions, orders, fills, portfolioHistory, snapshots] =
