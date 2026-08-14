@@ -355,7 +355,6 @@ function TradingChart({
     api.current?.remove();
     const chart = createChart(container.current, {
       autoSize: true,
-      height: 420,
       layout: {
         background: { type: ColorType.Solid, color: "#08110e" },
         textColor: "#a9b8b1",

@@ -1411,7 +1411,8 @@ input {
 }
 .lightweight-chart {
   width: 100%;
-  min-height: 420px;
+  height: 420px;
+  min-height: 0;
   overflow: hidden;
 }
 .position-overlay-summary {
@@ -1489,7 +1490,7 @@ input {
     flex: 1 1 auto;
   }
   .lightweight-chart {
-    min-height: 340px;
+    height: 340px;
   }
   .account-conversion {
     flex-direction: column;

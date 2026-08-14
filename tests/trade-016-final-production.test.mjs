@@ -154,10 +154,44 @@ test("charts and migrations are owner scoped and environment attributed", () => 
     "utf8",
   );
   assert.match(migration, /chart_drawings/);
-  assert.match(migration, /auth\.uid\(\)=user_id/);
+  assert.match(migration, /auth\.uid\(\)\s*=\s*user_id/);
   assert.match(migration, /active_environment/);
   assert.match(migration, /maximumTradeSize/);
   assert.match(migration, /auto_trader_enabled boolean not null default false/);
+  assert.match(migration, /^begin;/);
+  assert.match(migration, /drop policy if exists/);
+  assert.match(migration, /using \(auth\.uid\(\) = user_id\)/);
+  assert.match(migration, /with check \(auth\.uid\(\) = user_id\)/);
+  assert.match(migration, /on conflict do nothing/);
+  assert.match(migration, /commit;\s*$/);
+  assert.ok(
+    migration.lastIndexOf("insert into schema_migrations (version)") >
+      migration.lastIndexOf(
+        'create policy "Owners read notification heartbeat"',
+      ),
+  );
+});
+
+test("Lightweight Charts observes a bounded responsive container", () => {
+  const component = fs.readFileSync(
+    new URL("../components/professional-market-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  const styles = fs.readFileSync(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(component, /autoSize: true/);
+  assert.doesNotMatch(component, /autoSize: true,\s*height:/);
+  assert.match(styles, /\.lightweight-chart\s*{[^}]*height: 420px;/s);
+  assert.doesNotMatch(
+    styles,
+    /\.lightweight-chart\s*{[^}]*min-height: 420px;/s,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 620px\)[\s\S]*?\.lightweight-chart\s*{\s*height: 340px;/,
+  );
 });
 
 test("TRADE-015.1 Railway ESM commands and explicit imports remain intact", () => {
