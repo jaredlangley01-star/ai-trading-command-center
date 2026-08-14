@@ -650,6 +650,31 @@ type BigMoneyRow = {
   };
   created_at: string;
 };
+type IntelligenceRow = {
+  id: string;
+  symbol: string;
+  direction: "BUY" | "SELL" | "NO_TRADE";
+  current_price: number;
+  opportunity_score: number;
+  confidence: number;
+  technical_score: number;
+  fundamental_score: number;
+  catalyst_score: number;
+  market_context_score: number;
+  historical_score: number;
+  risk_score: number;
+  ai_status: string;
+  ai_analysis: null | Record<string, string | string[]>;
+  source_facts: Record<string, unknown>;
+  freshness: Record<string, { status: string; ageMs: number | null }>;
+  source_references: Array<{
+    provider: string;
+    id: string;
+    timestamp: string;
+    url: string;
+  }>;
+  generated_at: string;
+};
 
 function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
   const [items, setItems] = useState<BigMoneyRow[]>([]),
@@ -658,7 +683,9 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
     [busy, setBusy] = useState(false),
     [confirming, setConfirming] = useState(false),
     [message, setMessage] = useState(""),
-    [clock, setClock] = useState(() => Date.now());
+    [clock, setClock] = useState(() => Date.now()),
+    [intelligence, setIntelligence] = useState<IntelligenceRow[]>([]),
+    [selectedIntel, setSelectedIntel] = useState<IntelligenceRow | null>(null);
   const load = async () => {
     const response = await fetch("/api/big-money", { cache: "no-store" });
     const data = (await response.json()) as { recommendations?: BigMoneyRow[] };
@@ -679,6 +706,21 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 30_000);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const refresh = () =>
+      void fetch("/api/intelligence", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: { opportunities?: IntelligenceRow[] }) =>
+          setIntelligence(data.opportunities ?? []),
+        )
+        .catch(() => undefined);
+    const initial = window.setTimeout(refresh, 0);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
   }, []);
   const action = async (
     actionName: "GENERATE" | "REFRESH" | "MODIFY" | "REJECT" | "APPROVE",
@@ -731,7 +773,19 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
               value={symbol}
               onChange={(event) => setSymbol(event.target.value)}
             >
-              {["AAPL", "NVDA", "MSFT", "AMZN"].map((value) => (
+              {[
+                "AAPL",
+                "MSFT",
+                "NVDA",
+                "AMZN",
+                "GOOGL",
+                "META",
+                "TSLA",
+                "AMD",
+                "NFLX",
+                "SPY",
+                "QQQ",
+              ].map((value) => (
                 <option key={value}>{value}</option>
               ))}
             </select>
@@ -800,6 +854,169 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
           </table>
         </div>
       </section>
+      <section className="module broker-panel">
+        <header className="module-head">
+          <div>
+            <span className="section-label">
+              MARKET INTELLIGENCE OPPORTUNITY FEED
+            </span>
+            <p>
+              Deterministic scores · confidence measures data quality, not
+              outcome forecast
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              void fetch("/api/intelligence", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ symbol }),
+              }).then(() => setMessage(`${symbol} research queued on Railway.`))
+            }
+          >
+            REFRESH RESEARCH
+          </button>
+        </header>
+        <div className="table-scroll">
+          <table className="position-table">
+            <thead>
+              <tr>
+                {[
+                  "SYMBOL",
+                  "DIRECTION",
+                  "OPPORTUNITY",
+                  "CONFIDENCE",
+                  "PRICE",
+                  "TECHNICAL",
+                  "FUNDAMENTAL",
+                  "CATALYST",
+                  "RISK",
+                  "FRESHNESS",
+                ].map((heading) => (
+                  <th key={heading}>{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {intelligence.map((item) => (
+                <tr
+                  key={item.id}
+                  tabIndex={0}
+                  onClick={() => setSelectedIntel(item)}
+                >
+                  <td>
+                    <b>{item.symbol}</b>
+                  </td>
+                  <td>{item.direction}</td>
+                  <td>{item.opportunity_score}/100</td>
+                  <td>{item.confidence}/100 data quality</td>
+                  <td>${Number(item.current_price).toFixed(2)}</td>
+                  <td>{item.technical_score}</td>
+                  <td>{item.fundamental_score}</td>
+                  <td>{item.catalyst_score}</td>
+                  <td>{item.risk_score}</td>
+                  <td>
+                    {Object.values(item.freshness).some(
+                      (value) => value.status === "STALE",
+                    )
+                      ? "STALE INPUTS"
+                      : "CURRENT"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selectedIntel && (
+        <section className="module broker-panel">
+          <header className="module-head">
+            <div>
+              <span className="section-label">
+                {selectedIntel.symbol} DETAILED RESEARCH
+              </span>
+              <p>SOURCE FACTS are separated from AI INTERPRETATION</p>
+            </div>
+            <StatusBadge status={selectedIntel.ai_status} />
+          </header>
+          <div className="broker-details">
+            <FinancialMetric
+              label="OPPORTUNITY"
+              value={`${selectedIntel.opportunity_score}/100`}
+              note="Deterministic weighted score"
+            />
+            <FinancialMetric
+              label="CONFIDENCE"
+              value={`${selectedIntel.confidence}/100`}
+              note="Data completeness and freshness"
+            />
+            <FinancialMetric
+              label="MARKET CONTEXT"
+              value={`${selectedIntel.market_context_score}/100`}
+              note="SPY · QQQ · DIA · IWM"
+            />
+            <FinancialMetric
+              label="HISTORICAL"
+              value={`${selectedIntel.historical_score}/100`}
+              note="Not a forecast or guarantee"
+            />
+          </div>
+          <div className="research-full">
+            <b>SOURCE FACTS</b>
+            <pre>{JSON.stringify(selectedIntel.source_facts, null, 2)}</pre>
+          </div>
+          <div className="research-full">
+            <b>AI INTERPRETATION</b>
+            <p>
+              {selectedIntel.ai_status === "AI ANALYSIS UNAVAILABLE"
+                ? "AI ANALYSIS UNAVAILABLE"
+                : String(
+                    selectedIntel.ai_analysis?.executiveSummary ??
+                      "Structured analysis available below.",
+                  )}
+            </p>
+          </div>
+          {(
+            [
+              "bullCase",
+              "bearCase",
+              "catalysts",
+              "risks",
+              "invalidation",
+            ] as const
+          ).map((key) => (
+            <div className="research-full" key={key}>
+              <b>
+                {key === "bullCase"
+                  ? "BULL CASE"
+                  : key === "bearCase"
+                    ? "BEAR CASE"
+                    : key === "catalysts"
+                      ? "KEY CATALYSTS"
+                      : key === "risks"
+                        ? "KEY RISKS"
+                        : "WHAT WOULD INVALIDATE THIS SETUP"}
+              </b>
+              <p>
+                {Array.isArray(selectedIntel.ai_analysis?.[key])
+                  ? (selectedIntel.ai_analysis?.[key] as string[]).join(" · ")
+                  : "AI ANALYSIS UNAVAILABLE"}
+              </p>
+            </div>
+          ))}
+          <div className="research-full">
+            <b>SOURCE REFERENCES</b>
+            {selectedIntel.source_references.map((source) => (
+              <p key={`${source.provider}:${source.id}`}>
+                <a href={source.url} target="_blank" rel="noreferrer">
+                  {source.provider} · {source.id}
+                </a>{" "}
+                · {new Date(source.timestamp).toLocaleString()}
+              </p>
+            ))}
+          </div>
+        </section>
+      )}
       {selected && (
         <section className="module broker-panel">
           <header className="module-head">
