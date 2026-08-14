@@ -3919,15 +3919,325 @@ body {
   overflow: hidden;
 }
 
-html,
-body {
-  max-width: 100%;
-  overflow-x: clip;
-}
-
 .dashboard-grid .recent,
 .backtesting-workspace .recent {
   display: block;
+}
+
+/* TRADE-016.3 responsive containment hotfix. */
+.main,
+.workspace-page,
+.hero-copy,
+.professional-dashboard,
+.professional-widget-grid,
+.dashboard-grid,
+.dashboard-grid > *,
+.dashboard-grid .module {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.financial-metric {
+  min-width: 0;
+}
+
+.financial-metric b,
+.financial-metric small,
+.account-conversion strong,
+.health-row b {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.hero-copy .hero-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+
+.hero-copy .hero-metrics .financial-metric {
+  padding: var(--space-3);
+  border: 0;
+  background: var(--panel);
+}
+
+.hero-copy .hero-metrics .financial-metric:first-child {
+  grid-column: auto;
+}
+
+.hero-copy .hero-metrics .financial-metric:last-child {
+  display: block;
+}
+
+.hero-copy .hero-metrics .financial-metric b {
+  font-size: clamp(14px, 1.1vw, 18px);
+}
+
+.dashboard-command-strip {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "account actions"
+    "clocks clocks";
+  align-items: center;
+}
+
+.account-conversion {
+  grid-area: account;
+  display: grid;
+  grid-template-columns: auto repeat(2, minmax(120px, auto));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.account-conversion > * {
+  min-width: 0;
+}
+
+.trading-clocks {
+  grid-area: clocks;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+}
+
+.layout-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pro-chart-widget .module-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.chart-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.chart-control-selectors,
+.chart-timeframes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.chart-control-selectors select {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.chart-timeframes {
+  justify-content: flex-end;
+}
+
+.chart-timeframes button {
+  min-width: 38px;
+}
+
+.market-grid article {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.market-grid article > * {
+  min-width: 0;
+}
+
+.market-grid article small {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-grid .recommendation {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dashboard-grid .rec-main {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+}
+
+.dashboard-grid .rec-metrics,
+.dashboard-grid .research-summary {
+  grid-column: 1 / -1;
+}
+
+.dashboard-grid .rec-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.dashboard-grid .strategy-score {
+  position: static;
+  align-self: start;
+  min-width: 72px;
+  padding-left: var(--space-3);
+}
+
+.dashboard-grid .rec-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-grid .rec-actions span {
+  grid-column: 1 / -1;
+}
+
+.dashboard-grid .health {
+  min-width: 0;
+}
+
+.dashboard-grid .health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.dashboard-grid .health-row b {
+  text-align: right;
+  font-size: 10px;
+}
+
+.backtesting-workspace .backtest-config-panel {
+  grid-row: 1;
+  position: static;
+  top: auto;
+}
+
+.backtesting-workspace .backtest-analysis-panel {
+  grid-row: 1;
+}
+
+.backtesting-workspace .recent {
+  grid-row: 2;
+}
+
+.backtesting-workspace > .module:last-child {
+  grid-row: 3;
+}
+
+.backtesting-workspace .position-table {
+  min-width: 860px;
+}
+
+.backtesting-workspace .position-table td:nth-child(4),
+.backtesting-workspace .position-table td:nth-child(5),
+.backtesting-workspace .position-table td:nth-child(6),
+.backtesting-workspace .position-table td:nth-child(7),
+.backtesting-workspace .position-table td:nth-child(8) {
+  white-space: nowrap;
+}
+
+@media (max-width: 1500px) {
+  .portfolio-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-copy .hero-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-grid .auto-module,
+  .dashboard-grid .position-module,
+  .dashboard-grid .risk-card,
+  .dashboard-grid .recent,
+  .dashboard-grid .recommendation,
+  .dashboard-grid .health,
+  .dashboard-grid .allocation {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .dashboard-grid .allocation {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1240px) {
+  .backtesting-workspace .backtest-config-panel,
+  .backtesting-workspace .backtest-analysis-panel,
+  .backtesting-workspace .recent,
+  .backtesting-workspace > .module:last-child {
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-command-strip {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "account"
+      "clocks"
+      "actions";
+  }
+
+  .layout-actions {
+    justify-content: stretch;
+  }
+
+  .layout-actions button {
+    flex: 1 1 160px;
+  }
+
+  .chart-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chart-timeframes {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .hero-copy .hero-metrics,
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-conversion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trading-clocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trading-clocks > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .chart-control-selectors select {
+    max-width: none;
+  }
+
+  .dashboard-grid .rec-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .dashboard-grid .rec-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-grid .rec-metrics .financial-metric:nth-child(n + 5) {
+    display: block;
+  }
 }
 
 @media (max-width: 700px) {

@@ -161,42 +161,46 @@ export function ProfessionalMarketDashboard({
           </span>
           <p>Drag to reorder · scroll/pinch to zoom · drag chart to pan</p>
         </div>
-        <div className="chart-controls">
-          <select
-            aria-label="Chart mode"
-            value={mode}
-            onChange={(e) => setMode(e.target.value as typeof mode)}
-          >
-            <option value="POSITION">OPEN POSITION</option>
-            <option value="SYMBOL">SYMBOL</option>
-            <option value="PORTFOLIO">PORTFOLIO EQUITY</option>
-          </select>
-          <select
-            aria-label="Current position"
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-          >
-            {positions.map((position) => (
-              <option key={position.symbol} value={position.symbol}>
-                {position.symbol} —{" "}
-                {position.direction === "BUY" ? "LONG" : "SHORT"}
-              </option>
-            ))}
-            {data?.preferences.watchlist
-              .filter((item) => !positions.some((p) => p.symbol === item))
-              .map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-          </select>
-          {Object.entries(frames).map(([label, value]) => (
-            <button
-              key={value}
-              className={timeframe === value ? "active" : ""}
-              onClick={() => setTimeframe(value)}
+        <div className="chart-controls" aria-label="Chart controls">
+          <div className="chart-control-selectors">
+            <select
+              aria-label="Chart mode"
+              value={mode}
+              onChange={(e) => setMode(e.target.value as typeof mode)}
             >
-              {label}
-            </button>
-          ))}
+              <option value="POSITION">OPEN POSITION</option>
+              <option value="SYMBOL">SYMBOL</option>
+              <option value="PORTFOLIO">PORTFOLIO EQUITY</option>
+            </select>
+            <select
+              aria-label="Current position"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+            >
+              {positions.map((position) => (
+                <option key={position.symbol} value={position.symbol}>
+                  {position.symbol} —{" "}
+                  {position.direction === "BUY" ? "LONG" : "SHORT"}
+                </option>
+              ))}
+              {data?.preferences.watchlist
+                .filter((item) => !positions.some((p) => p.symbol === item))
+                .map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+            </select>
+          </div>
+          <div className="chart-timeframes" aria-label="Chart timeframe">
+            {Object.entries(frames).map(([label, value]) => (
+              <button
+                key={value}
+                className={timeframe === value ? "active" : ""}
+                onClick={() => setTimeframe(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
       {customizing && (
@@ -361,34 +365,36 @@ export function ProfessionalMarketDashboard({
             </div>
           ))}
         </div>
-        <button
-          className="layout-edit"
-          aria-pressed={customizing}
-          onClick={() => setCustomizing((value) => !value)}
-        >
-          {customizing ? "DONE" : "EDIT LAYOUT"}
-        </button>
-        {customizing && (
+        <div className="layout-actions">
           <button
-            className="layout-reset"
-            onClick={() =>
-              void save({
-                layout: [
-                  "status",
-                  "account",
-                  "chart",
-                  "positions",
-                  "risk",
-                  "markets",
-                  "opportunities",
-                  "health",
-                ],
-              })
-            }
+            className="layout-edit"
+            aria-pressed={customizing}
+            onClick={() => setCustomizing((value) => !value)}
           >
-            RESTORE LAYOUT
+            {customizing ? "DONE" : "EDIT LAYOUT"}
           </button>
-        )}
+          {customizing && (
+            <button
+              className="layout-reset"
+              onClick={() =>
+                void save({
+                  layout: [
+                    "status",
+                    "account",
+                    "chart",
+                    "positions",
+                    "risk",
+                    "markets",
+                    "opportunities",
+                    "health",
+                  ],
+                })
+              }
+            >
+              RESTORE LAYOUT
+            </button>
+          )}
+        </div>
       </div>
       <div className="professional-widget-grid">
         {order.map((widget) =>

@@ -232,9 +232,41 @@ test("TRADE-016.2 uses one shared responsive trading design system", () => {
   assert.match(shell, /risk-limit-groups/);
   assert.match(shell, /DashboardNotificationSummary/);
   assert.match(notifications, /notification-item severity-/);
-  assert.match(styles, /overflow-x: clip/);
+  assert.doesNotMatch(styles, /html,\s*body\s*{[^}]*overflow-x:\s*clip/s);
   assert.match(styles, /\.chart-density-tall \.lightweight-chart/);
   assert.doesNotMatch(dashboard, /setTimeout\([^)]*resize/i);
+});
+
+test("TRADE-016.3 responsive layout reflows instead of masking overflow", () => {
+  const dashboard = fs.readFileSync(
+    new URL("../components/professional-market-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  const shell = fs.readFileSync(
+    new URL("../components/trading-command-center.tsx", import.meta.url),
+    "utf8",
+  );
+  const styles = fs.readFileSync(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(dashboard, /chart-control-selectors/);
+  assert.match(dashboard, /chart-timeframes/);
+  assert.match(dashboard, /layout-actions/);
+  assert.match(
+    styles,
+    /grid-template-areas:\s*"account actions"\s*"clocks clocks"/,
+  );
+  assert.match(
+    styles,
+    /\.dashboard-grid \.strategy-score\s*{[^}]*position:\s*static/s,
+  );
+  assert.match(
+    styles,
+    /\.backtesting-workspace \.backtest-config-panel\s*{[^}]*position:\s*static/s,
+  );
+  assert.match(shell, /preciseCash\(Number\(trade\.entry_price\)\)/);
+  assert.match(shell, /decimalQuantity\(Number\(trade\.quantity\)\)/);
 });
 
 test("TRADE-015.1 Railway ESM commands and explicit imports remain intact", () => {

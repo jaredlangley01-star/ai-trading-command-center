@@ -170,6 +170,17 @@ const cash = (n: number) =>
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(n);
+const preciseCash = (n: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+const decimalQuantity = (n: number) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6,
+  }).format(n);
 
 export function TradingCommandCenter({
   ownerEmail,
@@ -2065,10 +2076,10 @@ function BacktestingWorkspace() {
                   <td>{String(trade.symbol)}</td>
                   <td>{String(trade.strategy)}</td>
                   <td>{String(trade.direction)}</td>
-                  <td>{String(trade.entry_price)}</td>
-                  <td>{String(trade.exit_price)}</td>
-                  <td>{String(trade.quantity)}</td>
-                  <td>{cash(Number(trade.net_pl))}</td>
+                  <td>{preciseCash(Number(trade.entry_price))}</td>
+                  <td>{preciseCash(Number(trade.exit_price))}</td>
+                  <td>{decimalQuantity(Number(trade.quantity))}</td>
+                  <td>{preciseCash(Number(trade.net_pl))}</td>
                   <td>{Number(trade.return_pct).toFixed(2)}%</td>
                   <td>{String(trade.exit_reason)}</td>
                 </tr>
