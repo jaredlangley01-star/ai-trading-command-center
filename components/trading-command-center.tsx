@@ -22,6 +22,11 @@ import {
   NotificationSettingsWorkspace,
 } from "./notification-workspace";
 import { ProfessionalMarketDashboard } from "./professional-market-dashboard";
+import {
+  AdvancedChartsWorkspace,
+  DiagnosticsWorkspace,
+  EnvironmentSettingsWorkspace,
+} from "./trade-016-workspaces";
 
 type AutoState = "ACTIVE" | "PAUSED" | "LOCKED";
 type Modal = "analysis" | "modify" | "position" | "reset" | null;
@@ -47,11 +52,13 @@ const nav = [
   "Opportunities",
   "Portfolio",
   "Strategies",
+  "Charts",
   "Backtesting",
   "Paper Trading",
   "Trade Journal",
   "Risk Manager",
   "Notifications",
+  "Diagnostics",
   "Settings",
 ];
 const icons = ["⌂", "◉", "◆", "⌁", "▣", "⌘", "↗", "◎", "≡", "◇", "○", "⚙"];
@@ -559,10 +566,17 @@ export function TradingCommandCenter({
           <RiskSettingsWorkspace initial={persistence.riskSettings} />
         ) : section === "Backtesting" ? (
           <BacktestingWorkspace />
+        ) : section === "Charts" ? (
+          <AdvancedChartsWorkspace />
         ) : section === "Notifications" ? (
           <NotificationCenterWorkspace />
+        ) : section === "Diagnostics" ? (
+          <DiagnosticsWorkspace />
         ) : section === "Settings" ? (
-          <NotificationSettingsWorkspace />
+          <div className="settings-stack">
+            <EnvironmentSettingsWorkspace />
+            <NotificationSettingsWorkspace />
+          </div>
         ) : section === "Paper Trading" ? (
           <BrokerWorkspace broker={displayedBroker} locked={locked} />
         ) : (

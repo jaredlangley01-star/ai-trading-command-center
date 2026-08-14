@@ -2,7 +2,16 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/src/lib/supabase/server";
 
 const allowedCurrencies = new Set(["USD", "ZAR", "GBP", "EUR"]),
-  allowedTimeframes = new Set(["1Min", "5Min", "15Min", "1Hour", "1Day"]);
+  allowedTimeframes = new Set([
+    "1Min",
+    "5Min",
+    "15Min",
+    "30Min",
+    "1Hour",
+    "4Hour",
+    "1Day",
+    "1Week",
+  ]);
 const defaults = {
   layout: [
     "status",
@@ -80,7 +89,14 @@ export async function GET(request: Request) {
     ]);
   const preferences = { ...defaults, ...(preferencesResult.data ?? {}) },
     watchlist = (preferences.watchlist as string[]).slice(0, 30);
-  const days = timeframe === "1Day" ? 365 : timeframe === "1Hour" ? 60 : 7,
+  const days =
+      timeframe === "1Week"
+        ? 1825
+        : timeframe === "1Day"
+          ? 365
+          : ["1Hour", "4Hour"].includes(timeframe)
+            ? 60
+            : 7,
     start = new Date(Date.now() - days * 86400000).toISOString();
   const [snapshotsResponse, barsResponse, rateResponse] =
     await Promise.allSettled([

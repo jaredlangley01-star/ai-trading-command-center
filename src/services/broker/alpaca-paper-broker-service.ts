@@ -184,8 +184,10 @@ export class AlpacaPaperBrokerService implements BrokerService {
 }
 
 export function createAlpacaPaperBrokerService() {
-  const apiKey = process.env.ALPACA_BROKER_API_KEY;
-  const apiSecret = process.env.ALPACA_BROKER_API_SECRET;
+  const apiKey =
+    process.env.ALPACA_PAPER_API_KEY ?? process.env.ALPACA_BROKER_API_KEY;
+  const apiSecret =
+    process.env.ALPACA_PAPER_API_SECRET ?? process.env.ALPACA_BROKER_API_SECRET;
   if (!apiKey || !apiSecret) return null;
   if ((process.env.ALPACA_BROKER_ENVIRONMENT ?? "PAPER") !== "PAPER")
     throw new BrokerError(
@@ -193,7 +195,9 @@ export function createAlpacaPaperBrokerService() {
       "Alpaca LIVE trading is locked.",
     );
   const baseUrl =
-    process.env.ALPACA_BROKER_BASE_URL ?? "https://paper-api.alpaca.markets";
+    process.env.ALPACA_PAPER_BASE_URL ??
+    process.env.ALPACA_BROKER_BASE_URL ??
+    "https://paper-api.alpaca.markets";
   if (baseUrl !== "https://paper-api.alpaca.markets")
     throw new BrokerError(
       "LIVE_TRADING_LOCKED",

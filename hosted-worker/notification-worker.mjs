@@ -254,6 +254,20 @@ async function deliverEvent(event) {
     });
 }
 async function cycle() {
+  const { data: owners } = await db.from("profiles").select("id");
+  for (const owner of owners ?? [])
+    await db.from("notification_worker_heartbeats").upsert(
+      {
+        user_id: owner.id,
+        worker_id:
+          process.env.NOTIFICATION_WORKER_ID ?? "railway-notification-worker",
+        status: "ONLINE",
+        last_seen_at: new Date().toISOString(),
+        version: process.env.WORKER_VERSION ?? "TRADE-016",
+        metadata: { runtime: "HOSTED_PRODUCTION", execution: "NONE" },
+      },
+      { onConflict: "user_id,worker_id" },
+    );
   await enqueueHealthTransitions();
   const stale = new Date(Date.now() - 10 * 60_000).toISOString();
   await db
