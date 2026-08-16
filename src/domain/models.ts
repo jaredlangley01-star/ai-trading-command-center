@@ -23,12 +23,18 @@ export interface BrokerAccount {
 }
 export type BrokerConnectionStatus = BrokerAccount["status"];
 export type PaperOrderStatus =
+  | "REVIEW"
   | "CONFIRMATION_REQUIRED"
+  | "QUEUED"
+  | "SUBMITTING"
   | "SUBMITTED"
   | "ACCEPTED"
+  | "PARTIALLY_FILLED"
   | "REJECTED"
   | "FILLED"
+  | "CANCELED"
   | "CANCELLED"
+  | "FAILED"
   | "ERROR";
 export interface BrokerAccountSummary {
   accountIdMasked: string;

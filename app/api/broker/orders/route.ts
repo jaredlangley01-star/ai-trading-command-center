@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedOwner } from "@/src/lib/supabase/auth";
 import { createSupabaseServerClient } from "@/src/lib/supabase/server";
-import { createPaperBroker } from "@/src/services/broker/factory";
-import { PaperOrderService } from "@/src/services/broker/paper-order-service";
-import { brokerErrorPayload, BrokerError } from "@/src/services/broker/errors";
+import {
+  brokerErrorPayload,
+  BrokerError,
+  RiskDecisionError,
+} from "@/src/services/broker/errors";
 import { TradePermissionService } from "@/src/services/trade-permission";
 import { defaultRiskSettings } from "@/src/config/trading";
 import type {
@@ -13,8 +15,49 @@ import type {
   TradeRiskContext,
 } from "@/src/domain/models";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
-import { createPaperMarketData } from "@/src/services/market-data/factory";
-import { assertFreshMarketQuote } from "@/src/services/market-data/freshness";
+import { heartbeatIsFresh } from "@/src/services/diagnostics";
+
+export async function GET(request: Request) {
+  const user = await getAuthenticatedOwner();
+  if (!user)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const clientOrderId = new URL(request.url).searchParams.get("clientOrderId");
+  if (!clientOrderId)
+    return NextResponse.json(
+      { error: "Client order ID required" },
+      { status: 400 },
+    );
+  const supabase = await createSupabaseServerClient();
+  if (!supabase)
+    return NextResponse.json(
+      { code: "SYNC_FAILED", message: "Order status is unavailable." },
+      { status: 503 },
+    );
+  const { data, error } = await supabase
+    .from("paper_execution_requests")
+    .select(
+      "id,client_order_id,status,broker_order_id,error_code,error_message,queued_at,worker_received_at,broker_submitted_at,completed_at,updated_at",
+    )
+    .eq("user_id", user.id)
+    .eq("client_order_id", clientOrderId)
+    .maybeSingle();
+  if (error)
+    return NextResponse.json(
+      { code: "SYNC_FAILED", message: "Order status query failed safely." },
+      { status: 503 },
+    );
+  if (!data)
+    return NextResponse.json(
+      { code: "SYNC_FAILED", message: "Order request was not found." },
+      { status: 404 },
+    );
+  return NextResponse.json({
+    ...data,
+    message: data.error_message,
+    mode: "PAPER",
+  });
+}
+
 export async function POST(request: Request) {
   const user = await getAuthenticatedOwner();
   if (!user)
@@ -53,7 +96,7 @@ export async function POST(request: Request) {
         status: "DRAFT",
         mode: "PAPER",
         client_order_id: body.clientOrderId,
-        source: body.source ?? "MANUAL",
+        source: "MANUAL",
       })
       .select("id")
       .single();
@@ -82,19 +125,15 @@ export async function POST(request: Request) {
     emergencyStopActive: stored?.emergency_stop_active ?? false,
   };
   try {
-    const selected = createPaperBroker();
-    if (!selected)
-      throw new BrokerError(
-        "GATEWAY_UNAVAILABLE",
-        "The cloud PAPER broker is not configured.",
-      );
     const today = new Date().toISOString().slice(0, 10);
     const [
       settingsResult,
       dailyResult,
       positionsResult,
       portfolioStateResult,
-      summary,
+      portfolioResult,
+      quoteResult,
+      workerResult,
     ] = supabase
       ? await Promise.all([
           supabase
@@ -109,23 +148,61 @@ export async function POST(request: Request) {
             .eq("trading_date", today)
             .maybeSingle(),
           supabase
-            .from("positions")
-            .select("symbol,quantity,entry_price,current_price,source")
-            .eq("user_id", user.id),
+            .from("paper_positions")
+            .select("symbol,quantity,entry_price,current_price,trade_origin")
+            .eq("user_id", user.id)
+            .in("status", ["OPEN", "EXIT_PENDING"]),
           supabase
             .from("risk_portfolio_state")
             .select("high_water_mark")
             .eq("user_id", user.id)
             .maybeSingle(),
-          selected.broker.getAccountSummary(),
+          supabase
+            .from("paper_portfolio_current")
+            .select("equity,cash,buying_power,as_of")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("paper_market_quotes")
+            .select("bid,ask,last,provider,feed,as_of")
+            .eq("user_id", user.id)
+            .eq("symbol", body.symbol.toUpperCase())
+            .maybeSingle(),
+          supabase
+            .from("trading_worker_heartbeats")
+            .select("last_seen_at,status")
+            .eq("user_id", user.id)
+            .order("last_seen_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
         ])
       : [
           { data: null },
           { data: null },
           { data: [] },
           { data: null },
-          await selected.broker.getAccountSummary(),
+          { data: null },
+          { data: null },
+          { data: null },
         ];
+    if (!supabase || !heartbeatIsFresh(workerResult.data))
+      throw new BrokerError(
+        "WORKER_UNAVAILABLE",
+        "WORKER_UNAVAILABLE: Railway Trading Worker heartbeat is stale or missing.",
+        true,
+      );
+    if (!portfolioResult.data)
+      throw new BrokerError(
+        "SYNC_FAILED",
+        "SYNC_FAILED: synchronized PAPER portfolio is unavailable.",
+        true,
+      );
+    if (!quoteResult.data)
+      throw new BrokerError(
+        "SYNC_FAILED",
+        "SYNC_FAILED: a current Railway Alpaca IEX quote is unavailable.",
+        true,
+      );
     const settings: RiskSettings = {
       ...defaultRiskSettings,
       ...(settingsResult.data?.settings as Partial<RiskSettings> | null),
@@ -148,7 +225,7 @@ export async function POST(request: Request) {
         0,
       );
     const autoTraderExposure = positionRows
-      .filter((position) => position.source === "AUTO_TRADER")
+      .filter((position) => position.trade_origin === "AUTO_TRADER")
       .reduce(
         (total, position) =>
           total +
@@ -156,18 +233,15 @@ export async function POST(request: Request) {
             Number(position.current_price ?? position.entry_price),
         0,
       );
-    const quote = await createPaperMarketData().getQuote({
-      id: body.symbol.toLowerCase(),
-      symbol: body.symbol.toUpperCase(),
-      name: body.symbol.toUpperCase(),
-      assetClass: "EQUITY",
-      currency: summary.currency || "USD",
-    });
-    const freshness = assertFreshMarketQuote(quote);
-    const expectedPrice = Number(body.limitPrice ?? quote?.last ?? 0);
-    const portfolioValue = Number(
-      summary.netLiquidation ?? summary.balance ?? 0,
-    );
+    const quoteAgeMs = Date.now() - Date.parse(quoteResult.data.as_of);
+    if (!Number.isFinite(quoteAgeMs) || quoteAgeMs > 120_000)
+      throw new BrokerError(
+        "SYNC_FAILED",
+        "SYNC_FAILED: Railway Alpaca IEX quote is stale.",
+        true,
+      );
+    const expectedPrice = Number(body.limitPrice ?? quoteResult.data.last ?? 0);
+    const portfolioValue = Number(portfolioResult.data.equity ?? 0);
     const highWaterMark = Math.max(
       portfolioValue,
       Number(portfolioStateResult.data?.high_water_mark ?? 0),
@@ -188,7 +262,7 @@ export async function POST(request: Request) {
       assetExposure,
       portfolioValue,
       portfolioDrawdownPct,
-      source: body.source ?? "MANUAL",
+      source: "MANUAL",
       emergencyStopActive: state.emergencyStopActive,
       systemLocked:
         state.riskState === "LOCKED" ||
@@ -248,24 +322,64 @@ export async function POST(request: Request) {
         );
       },
     );
-    const service = new PaperOrderService(
-      selected.broker,
-      riskManager,
-      new TradePermissionService(state, settings),
-    );
-    const result = await service.submit(
-      { ...body, mode: "PAPER" },
-      riskContext,
-    );
+    const queueBroker = {
+      submitPaperOrder: async () => {
+        const { data: queued, error: queueError } = await supabase
+          .from("paper_execution_requests")
+          .insert({
+            user_id: user.id,
+            order_id: reservedOrderId,
+            client_order_id: body.clientOrderId,
+            symbol: body.symbol.toUpperCase(),
+            direction: body.direction,
+            quantity: body.quantity,
+            order_type: body.type,
+            limit_price: body.type === "LIMIT" ? body.limitPrice : null,
+            stop_loss: body.stopLoss ?? null,
+            source: "MANUAL",
+            status: "QUEUED",
+          })
+          .select("id,status")
+          .single();
+        if (queueError || !queued)
+          throw new BrokerError(
+            "SYNC_FAILED",
+            "SYNC_FAILED: durable PAPER execution request could not be created.",
+            true,
+          );
+        return {
+          brokerOrderId: queued.id,
+          status: "QUEUED" as const,
+          message:
+            "PAPER order queued for the Railway Trading Worker. Alpaca has not accepted it yet.",
+          mode: "PAPER" as const,
+        };
+      },
+    };
+    if (body.mode !== "PAPER")
+      throw new BrokerError("LIVE_TRADING_LOCKED", "Live trading is locked.");
+    if (!body.confirmed)
+      throw new BrokerError(
+        "PAPER_CONFIRMATION_REQUIRED",
+        "Paper order confirmation is required.",
+      );
+    const decision = await riskManager.evaluateOrder(riskContext);
+    if (decision.status !== "APPROVED") throw new RiskDecisionError(decision);
+    const permission = new TradePermissionService(state, settings);
+    if (!permission.canOpenTrade())
+      throw new BrokerError(
+        "TRADE_PERMISSION_DENIED",
+        permission.getLockReason() ?? "Trade permission denied.",
+      );
+    const result = await queueBroker.submitPaperOrder();
     if (supabase) {
-      await supabase.rpc("record_paper_trade_open", { p_user_id: user.id });
       await supabase
         .from("orders")
         .update({ status: result.status })
         .eq("id", reservedOrderId);
       await supabase.from("audit_events").insert({
         user_id: user.id,
-        action: "PAPER_ORDER_SUBMITTED",
+        action: "PAPER_ORDER_QUEUED",
         metadata: {
           symbol: body.symbol,
           direction: body.direction,
@@ -273,21 +387,21 @@ export async function POST(request: Request) {
           type: body.type,
           mode: "PAPER",
           client_order_id: body.clientOrderId,
-          brokerOrderId: result.brokerOrderId,
-          market_data_provider: quote.provider,
-          market_data_feed: quote.feed,
-          quote_timestamp: freshness.timestamp,
-          quote_age_ms: freshness.ageMs,
+          executionRequestId: result.brokerOrderId,
+          market_data_provider: quoteResult.data.provider,
+          market_data_feed: quoteResult.data.feed,
+          quote_timestamp: quoteResult.data.as_of,
+          quote_age_ms: quoteAgeMs,
         },
       });
       await supabase.from("notification_events").upsert(
         {
           user_id: user.id,
-          event_type: "ORDER_SUBMITTED",
+          event_type: "ORDER_QUEUED",
           category: "TRADE",
           severity: "INFO",
-          title: `${body.symbol.toUpperCase()} PAPER Order Submitted`,
-          body: `${body.direction} ${body.quantity} ${body.symbol.toUpperCase()} was submitted to the PAPER broker.`,
+          title: `${body.symbol.toUpperCase()} PAPER Order Queued`,
+          body: `${body.direction} ${body.quantity} ${body.symbol.toUpperCase()} is queued for Railway broker submission.`,
           payload: {
             symbol: body.symbol.toUpperCase(),
             direction: body.direction,
@@ -303,15 +417,20 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     const failure = brokerErrorPayload(error);
+    const rejected =
+      failure.code === "TRADE_PERMISSION_DENIED" ||
+      failure.code === "PAPER_CONFIRMATION_REQUIRED" ||
+      failure.code === "LIVE_TRADING_LOCKED" ||
+      failure.code === "ORDER_REJECTED";
     if (supabase) {
       if (reservedOrderId)
         await supabase
           .from("orders")
-          .update({ status: "REJECTED" })
+          .update({ status: rejected ? "REJECTED" : "FAILED" })
           .eq("id", reservedOrderId);
       await supabase.from("audit_events").insert({
         user_id: user.id,
-        action: "PAPER_ORDER_REJECTED",
+        action: rejected ? "PAPER_ORDER_REJECTED" : "PAPER_ORDER_FAILED",
         metadata: {
           code: failure.code,
           message: failure.message,
@@ -321,11 +440,11 @@ export async function POST(request: Request) {
       await supabase.from("notification_events").upsert(
         {
           user_id: user.id,
-          event_type: "ORDER_REJECTED",
+          event_type: rejected ? "ORDER_REJECTED" : "ORDER_FAILED",
           category: "TRADE",
           severity: "WARNING",
-          title: "PAPER Order Rejected",
-          body: `${body.symbol.toUpperCase()} PAPER order was rejected: ${failure.code}.`,
+          title: rejected ? "PAPER Order Rejected" : "PAPER Order Failed",
+          body: `${body.symbol.toUpperCase()} PAPER order ${rejected ? "was rejected" : "failed before queueing"}: ${failure.code}.`,
           payload: { symbol: body.symbol.toUpperCase(), code: failure.code },
           deep_link: "/?section=Paper%20Trading",
           dedupe_key: `order:rejected:${body.clientOrderId}`,

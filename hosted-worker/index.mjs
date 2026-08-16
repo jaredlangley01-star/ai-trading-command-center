@@ -32,6 +32,10 @@ import {
   rankAutonomousCandidates,
   regimeSuitability,
 } from "../src/services/autonomous-decision.ts";
+import {
+  normalizePaperExecutionStatus,
+  safePaperExecutionFailure,
+} from "../src/services/paper-execution.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
@@ -596,7 +600,7 @@ async function synchronizeOwnerPortfolio(
     db
       .from("orders")
       .select(
-        "id,symbol,source,client_order_id,automated_decision_id,recommendation_id,created_at",
+        "id,symbol,source,status,client_order_id,broker_order_id,automated_decision_id,recommendation_id,created_at",
       )
       .eq("user_id", ownerId)
       .order("created_at", { ascending: false })
@@ -631,6 +635,34 @@ async function synchronizeOwnerPortfolio(
     const symbol = String(brokerOrder.symbol).toUpperCase();
     if (platformOrder && !orderMap.has(symbol))
       orderMap.set(symbol, platformOrder);
+    if (platformOrder) {
+      const status = normalizePaperExecutionStatus(brokerOrder.status);
+      const updatedAt = new Date().toISOString();
+      await Promise.all([
+        db
+          .from("orders")
+          .update({ status, broker_order_id: String(brokerOrder.id) })
+          .eq("id", platformOrder.id)
+          .eq("user_id", ownerId),
+        db
+          .from("paper_execution_requests")
+          .update({
+            status,
+            broker_order_id: String(brokerOrder.id),
+            completed_at: ["FILLED", "REJECTED", "CANCELED"].includes(status)
+              ? updatedAt
+              : null,
+            updated_at: updatedAt,
+          })
+          .eq("user_id", ownerId)
+          .eq("client_order_id", String(brokerOrder.client_order_id)),
+      ]);
+      if (status === "FILLED")
+        await recordFilledPaperExecution(
+          ownerId,
+          String(brokerOrder.client_order_id),
+        );
+    }
   }
   const openIds = positions.map((position) => String(position.asset_id));
   for (const position of positions) {
@@ -683,7 +715,8 @@ async function synchronizeOwnerPortfolio(
                 ? "Combined Opportunity Engine"
                 : "Manual / External PAPER"),
         trade_origin: tradeOrigin,
-        broker_order_id: control?.broker_order_id ?? platformOrder?.id ?? null,
+        broker_order_id:
+          control?.broker_order_id ?? platformOrder?.broker_order_id ?? null,
         risk_decision_id:
           control?.risk_decision_id ??
           automatedDecision?.risk_decision_id ??
@@ -829,7 +862,11 @@ async function synchronizeOwnerPortfolio(
     unrealized_pl: unrealized,
     open_exposure: exposure,
     position_count: positions.length,
-    open_order_count: orders.length,
+    open_order_count: orders.filter((order) =>
+      ["new", "accepted", "pending_new", "partially_filled"].includes(
+        String(order.status).toLowerCase(),
+      ),
+    ).length,
     source: "ALPACA_PAPER",
     as_of: asOf,
     updated_at: asOf,
@@ -1405,6 +1442,232 @@ const avgMetric = (rows, key) =>
     ? rows.reduce((sum, row) => sum + Number(row[key] ?? 0), 0) / rows.length
     : 0;
 
+async function processManualExecutionRequests() {
+  const staleBefore = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { data: staleClaims } = await db
+    .from("paper_execution_requests")
+    .select("id,user_id,order_id,client_order_id")
+    .eq("status", "SUBMITTING")
+    .lt("updated_at", staleBefore);
+  for (const stale of staleClaims ?? []) {
+    try {
+      const brokerOrder = await json(
+        `${PAPER_URL}/v2/orders:by_client_order_id?client_order_id=${encodeURIComponent(stale.client_order_id)}`,
+        { headers: brokerHeaders() },
+      );
+      const status = normalizePaperExecutionStatus(brokerOrder.status);
+      const recoveredAt = new Date().toISOString();
+      await Promise.all([
+        db
+          .from("paper_execution_requests")
+          .update({
+            status,
+            broker_order_id: String(brokerOrder.id),
+            broker_submitted_at: brokerOrder.submitted_at ?? recoveredAt,
+            updated_at: recoveredAt,
+          })
+          .eq("id", stale.id)
+          .eq("status", "SUBMITTING"),
+        db
+          .from("orders")
+          .update({ status, broker_order_id: String(brokerOrder.id) })
+          .eq("id", stale.order_id)
+          .eq("user_id", stale.user_id),
+      ]);
+    } catch (recoveryError) {
+      if (
+        recoveryError instanceof Error &&
+        recoveryError.message === "UPSTREAM_404"
+      )
+        await db
+          .from("paper_execution_requests")
+          .update({ status: "QUEUED", updated_at: new Date().toISOString() })
+          .eq("id", stale.id)
+          .eq("status", "SUBMITTING");
+    }
+  }
+  const { data: queued, error } = await db
+    .from("paper_execution_requests")
+    .select("*")
+    .eq("status", "QUEUED")
+    .order("queued_at", { ascending: true })
+    .limit(25);
+  if (error) throw error;
+  for (const request of queued ?? []) {
+    const receivedAt = new Date().toISOString();
+    const { data: claimed } = await db
+      .from("paper_execution_requests")
+      .update({
+        status: "SUBMITTING",
+        worker_received_at: receivedAt,
+        updated_at: receivedAt,
+      })
+      .eq("id", request.id)
+      .eq("status", "QUEUED")
+      .select("id")
+      .maybeSingle();
+    if (!claimed) continue;
+    try {
+      const [{ data: state }, { data: riskDecision }, { data: platformOrder }] =
+        await Promise.all([
+          db
+            .from("system_state")
+            .select("mode,risk_state,emergency_stop_active")
+            .eq("user_id", request.user_id)
+            .maybeSingle(),
+          db
+            .from("risk_decisions")
+            .select("decision")
+            .eq("user_id", request.user_id)
+            .eq("client_order_id", request.client_order_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          db
+            .from("orders")
+            .select("id")
+            .eq("id", request.order_id)
+            .eq("user_id", request.user_id)
+            .maybeSingle(),
+        ]);
+      if (
+        state?.mode !== "PAPER" ||
+        state?.emergency_stop_active ||
+        state?.risk_state === "LOCKED" ||
+        riskDecision?.decision !== "APPROVED" ||
+        !platformOrder
+      )
+        throw new Error("RISK_REJECTED");
+      const response = await json(`${PAPER_URL}/v2/orders`, {
+        method: "POST",
+        headers: { ...brokerHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({
+          symbol: request.symbol,
+          qty: String(request.quantity),
+          side: String(request.direction).toLowerCase(),
+          type: String(request.order_type).toLowerCase(),
+          time_in_force: "day",
+          client_order_id: request.client_order_id,
+          ...(request.order_type === "LIMIT"
+            ? { limit_price: String(request.limit_price) }
+            : {}),
+        }),
+      });
+      const status = normalizePaperExecutionStatus(response.status);
+      const submittedAt = new Date().toISOString();
+      await Promise.all([
+        db
+          .from("paper_execution_requests")
+          .update({
+            status,
+            broker_order_id: String(response.id),
+            broker_submitted_at: submittedAt,
+            completed_at: ["FILLED", "REJECTED", "CANCELED"].includes(status)
+              ? submittedAt
+              : null,
+            updated_at: submittedAt,
+          })
+          .eq("id", request.id),
+        db
+          .from("orders")
+          .update({ status, broker_order_id: String(response.id) })
+          .eq("id", request.order_id)
+          .eq("user_id", request.user_id),
+        db.from("audit_events").insert({
+          user_id: request.user_id,
+          action: "PAPER_ORDER_RAILWAY_SUBMITTED",
+          metadata: {
+            mode: "PAPER",
+            execution_request_id: request.id,
+            client_order_id: request.client_order_id,
+            broker_order_id: String(response.id),
+            status,
+          },
+        }),
+      ]);
+      if (status === "FILLED")
+        await recordFilledPaperExecution(
+          request.user_id,
+          request.client_order_id,
+        );
+    } catch (executionError) {
+      const riskRejected =
+        executionError instanceof Error &&
+        executionError.message === "RISK_REJECTED";
+      const { code, message } = riskRejected
+        ? {
+            code: "RISK_REJECTED",
+            message:
+              "Risk or trade permission changed before broker submission.",
+          }
+        : safePaperExecutionFailure(executionError);
+      const failedAt = new Date().toISOString();
+      await Promise.all([
+        db
+          .from("paper_execution_requests")
+          .update({
+            status:
+              riskRejected || code === "ORDER_REJECTED" ? "REJECTED" : "FAILED",
+            error_code: code,
+            error_message: message,
+            completed_at: failedAt,
+            updated_at: failedAt,
+          })
+          .eq("id", request.id),
+        db
+          .from("orders")
+          .update({
+            status:
+              riskRejected || code === "ORDER_REJECTED" ? "REJECTED" : "FAILED",
+          })
+          .eq("id", request.order_id)
+          .eq("user_id", request.user_id),
+      ]);
+    }
+  }
+}
+
+async function recordFilledPaperExecution(ownerId, clientOrderId) {
+  const countedAt = new Date().toISOString();
+  const { data: claimed } = await db
+    .from("paper_execution_requests")
+    .update({ risk_counted_at: countedAt, updated_at: countedAt })
+    .eq("user_id", ownerId)
+    .eq("client_order_id", clientOrderId)
+    .is("risk_counted_at", null)
+    .select("id")
+    .maybeSingle();
+  if (claimed) await db.rpc("record_paper_trade_open", { p_user_id: ownerId });
+}
+
+async function persistOwnerQuotes(ownerId, snapshots, asOf) {
+  const rows = Object.entries(snapshots ?? {}).flatMap(([symbol, snapshot]) => {
+    const last = number(
+      snapshot?.latestTrade?.p ??
+        snapshot?.minuteBar?.c ??
+        snapshot?.dailyBar?.c,
+    );
+    if (!last) return [];
+    return [
+      {
+        user_id: ownerId,
+        symbol: symbol.toUpperCase(),
+        bid: number(snapshot?.latestQuote?.bp) || last,
+        ask: number(snapshot?.latestQuote?.ap) || last,
+        last,
+        provider: "ALPACA",
+        feed: "IEX",
+        as_of: snapshot?.latestTrade?.t ?? snapshot?.minuteBar?.t ?? asOf,
+        updated_at: asOf,
+      },
+    ];
+  });
+  if (rows.length)
+    await db.from("paper_market_quotes").upsert(rows, {
+      onConflict: "user_id,symbol",
+    });
+}
+
 async function cycle() {
   const startedAt = new Date().toISOString();
   await ensureScheduledResearchJob();
@@ -1420,7 +1683,7 @@ async function cycle() {
       json(`${PAPER_URL}/v2/positions`, {
         headers: brokerHeaders(),
       }),
-      json(`${PAPER_URL}/v2/orders?status=open`, {
+      json(`${PAPER_URL}/v2/orders?status=all&direction=desc&limit=100`, {
         headers: brokerHeaders(),
       }),
       json(
@@ -1441,6 +1704,7 @@ async function cycle() {
         },
       ),
     ]);
+  await processManualExecutionRequests();
   for (const owner of owners ?? []) {
     const { data: state } = await db
       .from("system_state")
@@ -1450,6 +1714,7 @@ async function cycle() {
     const autoTraderPermitted =
       state?.auto_trader_status === "ACTIVE" &&
       state?.emergency_stop_active === false;
+    await persistOwnerQuotes(owner.id, snapshots, startedAt);
     await synchronizeOwnerPortfolio(
       owner.id,
       account,

@@ -262,7 +262,9 @@ test("order endpoint prevents duplicates before broker submission", async () => 
   );
   assert.match(route, /clientOrderId/);
   assert.match(route, /Duplicate request safely returned/);
-  assert.ok(route.indexOf("existing") < route.indexOf("service.submit"));
+  assert.ok(
+    route.indexOf("existing") < route.indexOf("queueBroker.submitPaperOrder"),
+  );
 });
 test("market data synchronization state is owner scoped by RLS", async () => {
   const migration = await readFile(

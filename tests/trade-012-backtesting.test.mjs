@@ -161,7 +161,7 @@ test("queued hosted persistence is owner scoped and restart safe", async () => {
   assert.match(api, /status: "QUEUED"/);
   assert.doesNotMatch(
     worker.match(
-      /async function processBacktestJob[\s\S]*?async function cycle/,
+      /async function processBacktestJob[\s\S]*?const researchUniverse/,
     )?.[0] ?? "",
     /PAPER_URL|submitPaperOrder/,
   );

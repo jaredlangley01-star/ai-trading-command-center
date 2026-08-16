@@ -11,6 +11,11 @@ export type BrokerFailureCode =
   | "TIMEOUT"
   | "RATE_LIMIT"
   | "ORDER_REJECTED"
+  | "WORKER_UNAVAILABLE"
+  | "BROKER_NOT_CONFIGURED"
+  | "BROKER_AUTH_FAILED"
+  | "ORDER_TIMEOUT"
+  | "SYNC_FAILED"
   | "DISCONNECTED_SESSION";
 export class BrokerError extends Error {
   readonly code: BrokerSafetyCode | BrokerFailureCode;
@@ -47,8 +52,8 @@ export const brokerErrorPayload = (error: unknown) =>
     : error instanceof BrokerError
       ? { code: error.code, message: error.message, retryable: error.retryable }
       : {
-          code: "IBKR_UNAVAILABLE",
-          message: "The paper broker is unavailable.",
+          code: "SYNC_FAILED",
+          message: "The PAPER execution request failed safely.",
           retryable: true,
         };
 import type { RiskDecision } from "../../domain/models.ts";

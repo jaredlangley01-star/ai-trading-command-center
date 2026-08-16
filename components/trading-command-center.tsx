@@ -3139,12 +3139,67 @@ function BrokerWorkspace({
     [confirming, setConfirming] = useState(false),
     [status, setStatus] = useState("READY"),
     [message, setMessage] = useState(""),
+    [trackingClientOrderId, setTrackingClientOrderId] = useState<string | null>(
+      null,
+    ),
     [clientOrderId, setClientOrderId] = useState(newManualRequestId),
     submitting = useRef(false);
+  useEffect(() => {
+    if (!trackingClientOrderId) return;
+    let stopped = false;
+    const refresh = async () => {
+      try {
+        const response = await fetch(
+          `/api/broker/orders?clientOrderId=${encodeURIComponent(trackingClientOrderId)}`,
+          { cache: "no-store" },
+        );
+        const data = (await response.json()) as {
+          status?: string;
+          message?: string | null;
+          error_code?: string | null;
+          worker_received_at?: string | null;
+          broker_submitted_at?: string | null;
+        };
+        if (stopped || !response.ok || !data.status) return;
+        setStatus(data.status);
+        setMessage(
+          data.message ??
+            (data.status === "QUEUED"
+              ? "Queued durably; waiting for Railway Trading Worker."
+              : data.status === "SUBMITTING"
+                ? "Railway received the request; submitting to Alpaca PAPER."
+                : ["SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"].includes(
+                      data.status,
+                    )
+                  ? "Alpaca PAPER received the order; awaiting final broker state and portfolio synchronization."
+                  : data.status === "FILLED"
+                    ? "Alpaca PAPER filled the order. Portfolio synchronization is active."
+                    : `${data.error_code ?? data.status}: PAPER order lifecycle completed.`),
+        );
+        if (
+          ["FILLED", "REJECTED", "CANCELED", "FAILED"].includes(data.status)
+        ) {
+          setTrackingClientOrderId(null);
+          setClientOrderId(newManualRequestId());
+        }
+      } catch {
+        if (!stopped)
+          setMessage(
+            "Order status synchronization is temporarily unavailable.",
+          );
+      }
+    };
+    void refresh();
+    const poll = window.setInterval(() => void refresh(), 2500);
+    return () => {
+      stopped = true;
+      window.clearInterval(poll);
+    };
+  }, [trackingClientOrderId]);
   const submit = async () => {
     if (submitting.current) return;
     submitting.current = true;
-    setStatus("SUBMITTED");
+    setStatus("SUBMITTING");
     setMessage("");
     try {
       const response = await fetch("/api/broker/orders", {
@@ -3170,7 +3225,9 @@ function BrokerWorkspace({
       };
       setStatus(data.status ?? "REJECTED");
       setMessage(data.message ?? data.code ?? "Paper order rejected.");
-      setClientOrderId(newManualRequestId());
+      if (response.ok && data.status === "QUEUED")
+        setTrackingClientOrderId(clientOrderId);
+      else setClientOrderId(newManualRequestId());
     } catch {
       setStatus("ERROR");
       setMessage("Paper broker request failed safely.");
@@ -3323,7 +3380,10 @@ function BrokerWorkspace({
         <button
           className="button primary ticket-submit"
           disabled={locked || broker.status !== "PAPER_CONNECTED"}
-          onClick={() => setConfirming(true)}
+          onClick={() => {
+            setStatus("REVIEW");
+            setConfirming(true);
+          }}
         >
           REVIEW PAPER ORDER
         </button>
@@ -3354,7 +3414,13 @@ function BrokerWorkspace({
               Manager before reaching the Alpaca PAPER adapter.
             </div>
             <footer>
-              <button className="button" onClick={() => setConfirming(false)}>
+              <button
+                className="button"
+                onClick={() => {
+                  setConfirming(false);
+                  setStatus("READY");
+                }}
+              >
                 CANCEL
               </button>
               <button className="button primary" onClick={submit}>
