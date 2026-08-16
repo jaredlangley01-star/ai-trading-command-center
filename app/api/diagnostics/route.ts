@@ -11,7 +11,11 @@ import {
   type DiagnosticState,
 } from "@/src/services/diagnostics";
 
-const expectedMigration = "202608140010_trade_016_final_production";
+const expectedMigrations = [
+  "202608140010_trade_016_final_production",
+  "202608160001_trade_016_4_owner_workflow",
+] as const;
+const expectedMigration = expectedMigrations.at(-1)!;
 const safe = (
   name: string,
   state: DiagnosticState,
@@ -87,8 +91,7 @@ export async function GET() {
         db
           .from("schema_migrations")
           .select("version")
-          .eq("version", expectedMigration)
-          .maybeSingle(),
+          .in("version", [...expectedMigrations]),
         db
           .from("system_state")
           .select("risk_state,emergency_stop_active,auto_trader_status,mode")
@@ -115,6 +118,12 @@ export async function GET() {
         Boolean(process.env.ALPACA_API_KEY && process.env.ALPACA_API_SECRET),
       runtimeHealthy =
         workerHealth.hostedRuntime || vercelRuntime === "HOSTED_PRODUCTION";
+    const appliedMigrations = new Set(
+      (migration.data ?? []).map((item) => item.version),
+    );
+    const missingMigrations = expectedMigrations.filter(
+      (version) => !appliedMigrations.has(version),
+    );
     const databaseErrors = [
       queryError("Railway Trading Worker", worker.error),
       queryError("Railway Notification Worker", notification.error),
@@ -236,10 +245,10 @@ export async function GET() {
         : [
             safe(
               "Database migrations",
-              migration.data ? "HEALTHY" : "DEGRADED",
-              migration.data
-                ? `Applied through ${expectedMigration}.`
-                : `Missing ${expectedMigration}.`,
+              missingMigrations.length ? "DEGRADED" : "HEALTHY",
+              missingMigrations.length
+                ? `Missing ${missingMigrations.join(", ")}.`
+                : `Required schema migrations recorded through ${expectedMigration}.`,
             ),
           ]),
       safe(
@@ -265,7 +274,7 @@ export async function GET() {
       paperReady: paperHealthy && workerHealth.online,
       liveReady: live.credentialsConfigured && live.endpointValid,
       liveLocked: !live.executionEnabled,
-      schemaVersion: migration.data?.version ?? null,
+      schemaVersion: missingMigrations.length ? null : expectedMigration,
       expectedMigration,
       generatedAt,
       nonTrading: true,
