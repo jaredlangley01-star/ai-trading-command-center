@@ -105,6 +105,8 @@ export async function GET() {
       vercelRuntime = getTradingRuntimeMode(),
       workerHealth = readTradingWorkerHealth(worker.data),
       notificationOnline = heartbeatIsFresh(notification.data),
+      notificationConfigured =
+        notification.data?.metadata?.pushConfigured !== false,
       paperConfigured =
         workerHealth.paperBrokerConfigured || paper.credentialsConfigured,
       paperHealthy = workerHealth.paperBrokerHealthy || paper.executionEnabled,
@@ -145,10 +147,16 @@ export async function GET() {
         : [
             safe(
               "Railway Notification Worker",
-              notificationOnline ? "ONLINE" : "OFFLINE",
+              notificationOnline
+                ? "ONLINE"
+                : notification.data && !notificationConfigured
+                  ? "NOT CONFIGURED"
+                  : "OFFLINE",
               notificationOnline
                 ? "Authenticated owner heartbeat is current."
-                : "Heartbeat missing, stale, or not ONLINE.",
+                : notification.data && !notificationConfigured
+                  ? "Worker is running, but VAPID push configuration is incomplete on Railway."
+                  : "Heartbeat missing, stale, or not ONLINE.",
               notification.data?.last_seen_at ?? null,
             ),
           ]),

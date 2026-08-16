@@ -76,7 +76,7 @@ export async function GET(request: Request) {
       db
         .from("paper_positions")
         .select(
-          "symbol,side,qty,entry_price,current_price,market_value,unrealized_pl,stop_loss,take_profit,strategy_name,status",
+          "symbol,side,quantity,entry_price,current_price,market_value,unrealized_pl,unrealized_pl_pct,stop_loss,take_profit,strategy_name,trade_origin,opened_at,status",
         )
         .eq("user_id", user.id)
         .in("status", ["OPEN", "EXIT_PENDING"]),

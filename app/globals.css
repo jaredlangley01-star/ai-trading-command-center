@@ -1769,6 +1769,173 @@ input {
     display: none;
   }
 }
+
+/* TRADE-016.4 PAPER workflow visibility and temporary tutorial layer. */
+.active-trade-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  max-width: 460px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+}
+.active-trade-header span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.active-trade-header b {
+  color: var(--text);
+  font-size: 12px;
+}
+.top-tools {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.topbar {
+  height: auto;
+  min-height: 66px;
+  align-items: flex-start;
+}
+.tutorial-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: end center;
+  padding: var(--space-6);
+  background: rgba(2, 6, 10, 0.7);
+  backdrop-filter: blur(2px);
+}
+.tutorial-card {
+  width: min(620px, 100%);
+  padding: var(--space-6);
+  border: 1px solid #4d79af;
+  border-radius: var(--card-radius);
+  background: #0d1620;
+  box-shadow: 0 24px 70px #000b;
+}
+.tutorial-card h2 {
+  margin: var(--space-3) 0;
+}
+.tutorial-card p {
+  color: #b4c0cd;
+  line-height: 1.6;
+}
+.tutorial-card footer,
+.tutorial-settings .modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.tutorial-close {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  width: 44px;
+  height: 44px;
+  border: 1px solid #8aa4bf;
+  border-radius: 50%;
+  background: #101a25;
+  color: white;
+  font-size: 24px;
+}
+.tutorial-highlight {
+  position: relative;
+  z-index: 1001;
+  outline: 3px solid var(--blue);
+  outline-offset: 4px;
+}
+.portfolio-account-grid,
+.journal-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.portfolio-account-grid .financial-metric,
+.journal-summary .financial-metric {
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--panel);
+}
+.workflow-table,
+.strategy-detail {
+  min-width: 0;
+  overflow: hidden;
+}
+.workflow-table .position-table {
+  min-width: 880px;
+}
+.journal-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.journal-filters > * {
+  min-width: 0;
+}
+.strategy-performance-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr);
+  gap: var(--card-gap);
+  align-items: start;
+}
+.strategy-performance-workspace .strategy-row {
+  width: 100%;
+  text-align: left;
+}
+.strategy-performance-workspace .strategy-row.active {
+  border-color: var(--blue);
+  background: rgba(90, 145, 235, 0.08);
+}
+@media (max-width: 1500px) {
+  .active-trade-header {
+    order: 10;
+    max-width: 100%;
+    width: 100%;
+  }
+  .top-tools {
+    max-width: min(720px, 72%);
+  }
+}
+@media (max-width: 1240px) {
+  .strategy-performance-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 800px) {
+  .portfolio-account-grid,
+  .journal-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .journal-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tutorial-layer {
+    padding: var(--space-3);
+  }
+}
+@media (max-width: 500px) {
+  .portfolio-account-grid,
+  .journal-summary,
+  .journal-filters {
+    grid-template-columns: 1fr;
+  }
+  .active-trade-header span {
+    flex: 1 1 46%;
+    white-space: normal;
+  }
+  .tutorial-card {
+    padding: var(--space-4);
+  }
+}
 @media (max-width: 390px) {
   .hero-value {
     font-size: 27px;
@@ -2803,6 +2970,30 @@ body {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.strategy-config-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+
+.strategy-config-strip span {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: var(--panel-2);
+}
+
+.strategy-config-strip b {
+  color: var(--text);
+}
+
+.strategy-backtest-link {
+  margin-top: var(--space-3);
 }
 .strategy-stat-grid > div {
   padding: 18px;

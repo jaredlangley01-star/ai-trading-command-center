@@ -28,6 +28,18 @@ function applicationServerKey(value: string) {
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
+function normalizePreferences(
+  value: Partial<NotificationPreferences> | null | undefined,
+): NotificationPreferences {
+  return {
+    ...defaultNotificationPreferences,
+    ...value,
+    types: {
+      ...defaultNotificationPreferences.types,
+      ...(value?.types ?? {}),
+    },
+  };
+}
 
 export function NotificationSettingsWorkspace() {
   const [preferences, setPreferences] = useState(
@@ -44,7 +56,7 @@ export function NotificationSettingsWorkspace() {
     if (!available) queueMicrotask(() => setSupported(false));
     fetch("/api/notification-preferences")
       .then((r) => r.json())
-      .then(setPreferences)
+      .then((value) => setPreferences(normalizePreferences(value)))
       .catch(() => setStatus("Preferences unavailable"));
     navigator.serviceWorker
       ?.register("/sw.js")

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { defaultRiskSettings as limits } from "@/src/config/trading";
 import type {
   AuditEvent,
@@ -28,11 +28,23 @@ import {
   DiagnosticsWorkspace,
   EnvironmentSettingsWorkspace,
 } from "./trade-016-workspaces";
+import { GuidedTutorial, TutorialSettings } from "./guided-tutorial";
+import {
+  ActiveTradeHeader,
+  PortfolioWorkspace,
+  StrategyPerformanceWorkspace,
+  TradeJournalWorkspace,
+  type PaperPortfolio,
+} from "./paper-workflow-workspaces";
+import {
+  classifyTradeOrigin,
+  journalSummary,
+  newManualRequestId,
+} from "@/src/services/paper-workflow";
 
 type AutoState = "ACTIVE" | "PAUSED" | "LOCKED";
 type Modal = "analysis" | "modify" | "position" | "reset" | null;
-type HostedPortfolio = {
-  source: "ALPACA_PAPER" | "DEMO";
+type HostedPortfolio = PaperPortfolio & {
   account: null | {
     equity: number;
     cash: number;
@@ -43,8 +55,6 @@ type HostedPortfolio = {
     position_count: number;
     as_of: string;
   };
-  positions: Array<Record<string, string | number | null>>;
-  fills: Array<Record<string, string | number | null>>;
 };
 const nav = [
   "Dashboard",
@@ -71,64 +81,40 @@ const ranges: { [key: string]: number[] } = {
   "1Y": [14, 19, 24, 21, 30, 35, 40, 46, 43, 52, 57, 62],
   ALL: [8, 16, 13, 24, 29, 37, 34, 45, 51, 48, 57, 62],
 };
-const positions = [
-  {
-    symbol: "NVDA",
-    name: "NVIDIA Corp.",
-    direction: "BUY",
-    entry: "$181.42",
-    current: "$184.16",
-    size: "$4,200",
-    stop: "$176.90",
-    target: "$194.00",
-    pnl: 63.44,
-    pct: 1.51,
-    strategy: "Momentum V2",
-    status: "OPEN",
-  },
-  {
-    symbol: "EUR/USD",
-    name: "Euro / US Dollar",
-    direction: "BUY",
-    entry: "1.1662",
-    current: "1.1638",
-    size: "$3,000",
-    stop: "1.1580",
-    target: "1.1810",
-    pnl: -20.58,
-    pct: -0.69,
-    strategy: "FX Trend",
-    status: "OPEN",
-  },
-  {
-    symbol: "XAU/USD",
-    name: "Gold / US Dollar",
-    direction: "SELL",
-    entry: "3,362.20",
-    current: "3,350.60",
-    size: "$3,800",
-    stop: "3,398.00",
-    target: "3,284.00",
-    pnl: 42.18,
-    pct: 1.11,
-    strategy: "Macro Reversal",
-    status: "OPEN",
-  },
-  {
-    symbol: "AAPL",
-    name: "Apple Inc.",
-    direction: "BUY",
-    entry: "$225.10",
-    current: "$227.42",
-    size: "$2,900",
-    stop: "$218.40",
-    target: "$248.50",
-    pnl: 29.87,
-    pct: 1.03,
-    strategy: "Quality Breakout",
-    status: "OPEN",
-  },
-];
+type UiPosition = {
+  symbol: string;
+  name: string;
+  direction: "BUY" | "SELL";
+  entry: string;
+  current: string;
+  size: string;
+  stop: string;
+  target: string;
+  pnl: number;
+  pct: number;
+  strategy: string;
+  status: string;
+  classification?: string;
+  origin?: string;
+  quantity?: number;
+  openedAt?: string;
+  brokerOrderId?: string;
+  riskDecision?: string;
+};
+const emptyPosition: UiPosition = {
+  symbol: "",
+  name: "",
+  direction: "BUY",
+  entry: "—",
+  current: "—",
+  size: "—",
+  stop: "—",
+  target: "—",
+  pnl: 0,
+  pct: 0,
+  strategy: "Unattributed",
+  status: "CLOSED",
+};
 const markets = [
   { n: "S&P 500", v: "6,498.11", p: 0.42 },
   { n: "NASDAQ", v: "21,713.14", p: 0.66 },
@@ -208,7 +194,7 @@ export function TradingCommandCenter({
     [toast, setToast] = useState(""),
     [riskOption, setRiskOption] = useState("Recommended"),
     [investment, setInvestment] = useState(5000),
-    [selectedPosition, setSelectedPosition] = useState(positions[0]),
+    [selectedPosition, setSelectedPosition] = useState(emptyPosition),
     [, setAudit] = useState<AuditEvent[]>([]);
   const [liveMarket, setLiveMarket] = useState({
     source: broker.marketDataSource,
@@ -218,10 +204,14 @@ export function TradingCommandCenter({
     quotes: {} as Record<string, MarketQuote>,
   });
   const [hostedPortfolio, setHostedPortfolio] = useState<HostedPortfolio>({
-    source: "DEMO",
+    source: "NO_SYNC_DATA",
     account: null,
     positions: [],
+    orders: [],
     fills: [],
+    history: [],
+    journal: [],
+    activity: [],
   });
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get(
@@ -335,13 +325,17 @@ export function TradingCommandCenter({
     pnl: Number(position.unrealized_pl),
     pct: Number(Number(position.unrealized_pl_pct).toFixed(2)),
     strategy: String(position.strategy_name ?? "External / Manual PAPER"),
+    classification: classifyTradeOrigin(position.trade_origin),
+    quantity: Number(position.quantity ?? 0),
+    origin: String(position.trade_origin ?? "STANDARD"),
+    openedAt: String(position.opened_at ?? ""),
+    brokerOrderId: String(position.broker_order_id ?? "NOT RECORDED"),
+    riskDecision: String(
+      position.risk_decision_id ?? "PAPER RISK CONTROLS APPLIED",
+    ),
     status: String(position.status),
-  })) as typeof positions;
-  const livePositions = (
-    hostedPortfolio.source === "ALPACA_PAPER"
-      ? synchronizedPositions
-      : positions
-  ).map((position) => {
+  })) as UiPosition[];
+  const livePositions = synchronizedPositions.map((position) => {
     const quote = liveMarket.quotes[position.symbol];
     if (!quote) return position;
     const entry = Number(position.entry.replace(/[$,]/g, ""));
@@ -366,6 +360,7 @@ export function TradingCommandCenter({
     emergencyStopActive: locked,
   };
   const permission = new TradePermissionService(state, limits);
+  const navigate = useCallback((next: string) => setSection(next), []);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 3500);
@@ -446,6 +441,7 @@ export function TradingCommandCenter({
           {nav.map((n, i) => (
             <button
               key={n}
+              data-tutorial={n === "Dashboard" ? "dashboard-nav" : undefined}
               className={section === n ? "active" : ""}
               onClick={() => setSection(n)}
             >
@@ -477,12 +473,14 @@ export function TradingCommandCenter({
         </div>
       </aside>
       <main className="main">
+        <GuidedTutorial navigate={navigate} />
         <header className="topbar">
           <div>
             <p>COMMAND CENTER / {section.toUpperCase()}</p>
             <h1>{section}</h1>
           </div>
           <div className="top-tools">
+            <ActiveTradeHeader positions={hostedPortfolio.positions} />
             <span className="market-open">
               <i /> {liveMarket.source} ·{" "}
               {liveMarket.status === "MARKET_DATA_ACTIVE"
@@ -492,6 +490,7 @@ export function TradingCommandCenter({
             <button className="paper">PAPER</button>
             <button
               className="live"
+              data-tutorial="live-lock"
               onClick={() => setToast(requestTradingMode("LIVE").error!)}
             >
               LIVE LOCKED
@@ -509,98 +508,146 @@ export function TradingCommandCenter({
             </button>
           </div>
         </header>
-        {locked && (
-          <div className="lock-banner">
-            <div>
-              <b>⛔ SYSTEM LOCKED</b>
-              <span>
-                Emergency Stop active. Automated trading and approvals are
-                disabled.
-              </span>
+        <div data-tutorial="workspace-main">
+          {locked && (
+            <div className="lock-banner">
+              <div>
+                <b>⛔ SYSTEM LOCKED</b>
+                <span>
+                  Emergency Stop active. Automated trading and approvals are
+                  disabled.
+                </span>
+              </div>
+              <button onClick={() => setModal("reset")}>
+                RESET EMERGENCY STOP
+              </button>
             </div>
-            <button onClick={() => setModal("reset")}>
-              RESET EMERGENCY STOP
-            </button>
-          </div>
-        )}
-        {persistence.dailyRiskStatus === "DAILY_LOCK" && (
-          <div className="lock-banner daily-lock-banner">
-            <div>
-              <b>AUTO TRADER LOCKED FOR TODAY</b>
-              <span>
-                {persistence.dailyRiskReason?.replaceAll("_", " ") ??
-                  "Daily risk boundary reached"}
-                . Existing positions remain managed.
-              </span>
+          )}
+          {persistence.dailyRiskStatus === "DAILY_LOCK" && (
+            <div className="lock-banner daily-lock-banner">
+              <div>
+                <b>AUTO TRADER LOCKED FOR TODAY</b>
+                <span>
+                  {persistence.dailyRiskReason?.replaceAll("_", " ") ??
+                    "Daily risk boundary reached"}
+                  . Existing positions remain managed.
+                </span>
+              </div>
             </div>
-          </div>
-        )}
-        {section === "Dashboard" ? (
-          <Dashboard
-            range={range}
-            setRange={setRange}
-            auto={auto}
-            locked={locked}
-            rec={rec}
-            setRec={setRec}
-            investment={investment}
-            setInvestment={setInvestment}
-            setModal={setModal}
-            approve={approve}
-            reject={reject}
-            emergency={emergency}
-            pause={() => {
-              setAuto("PAUSED");
-              log("AUTO_TRADER_PAUSED");
-            }}
-            resume={() => {
-              if (!locked) {
-                setAuto("ACTIVE");
-                log("AUTO_TRADER_RESUMED");
-              }
-            }}
-            openPosition={(p) => {
-              setSelectedPosition(p);
-              setModal("position");
-            }}
-            broker={displayedBroker}
-            persistence={persistence}
-            livePositions={livePositions}
-            portfolio={hostedPortfolio}
-          />
-        ) : section === "Auto Trader" ? (
-          <AutoTraderWorkspace emergencyLocked={locked} />
-        ) : section === "Big Money" ? (
-          <BigMoneyWorkspace emergencyLocked={locked} />
-        ) : section === "Strategy Engine" || section === "Opportunities" ? (
-          <StrategyWorkspace page={section} />
-        ) : section === "Risk Manager" ? (
-          <RiskSettingsWorkspace initial={persistence.riskSettings} />
-        ) : section === "Backtesting" ? (
-          <BacktestingWorkspace />
-        ) : section === "Charts" ? (
-          <AdvancedChartsWorkspace />
-        ) : section === "Notifications" ? (
-          <NotificationCenterWorkspace />
-        ) : section === "Diagnostics" ? (
-          <DiagnosticsWorkspace />
-        ) : section === "Settings" ? (
-          <div className="settings-stack">
-            <EnvironmentSettingsWorkspace />
-            <NotificationSettingsWorkspace />
-          </div>
-        ) : section === "Paper Trading" ? (
-          <BrokerWorkspace broker={displayedBroker} locked={locked} />
-        ) : (
-          <div className="empty-state">
-            <span>{icons[nav.indexOf(section)]}</span>
-            <h2>{section}</h2>
-            <p>
-              This workspace is prepared for a future mission. Trading remains
-              in paper mode.
-            </p>
-          </div>
-        )}
+          )}
+          {section === "Dashboard" ? (
+            <Dashboard
+              range={range}
+              setRange={setRange}
+              auto={auto}
+              locked={locked}
+              rec={rec}
+              setRec={setRec}
+              investment={investment}
+              setInvestment={setInvestment}
+              setModal={setModal}
+              approve={approve}
+              reject={reject}
+              emergency={emergency}
+              pause={() => {
+                setAuto("PAUSED");
+                log("AUTO_TRADER_PAUSED");
+              }}
+              resume={() => {
+                if (!locked) {
+                  setAuto("ACTIVE");
+                  log("AUTO_TRADER_RESUMED");
+                }
+              }}
+              openPosition={(p) => {
+                setSelectedPosition(p);
+                setModal("position");
+              }}
+              broker={displayedBroker}
+              persistence={persistence}
+              livePositions={livePositions}
+              portfolio={hostedPortfolio}
+              viewPortfolio={() => setSection("Portfolio")}
+              viewBigMoney={() => setSection("Big Money")}
+            />
+          ) : section === "Auto Trader" ? (
+            <AutoTraderWorkspace emergencyLocked={locked} />
+          ) : section === "Big Money" ? (
+            <BigMoneyWorkspace emergencyLocked={locked} />
+          ) : section === "Opportunities" ? (
+            <StrategyWorkspace page={section} />
+          ) : section === "Strategies" ? (
+            <StrategyPerformanceWorkspace
+              openBacktesting={() => setSection("Backtesting")}
+            />
+          ) : section === "Portfolio" ? (
+            <PortfolioWorkspace
+              portfolio={hostedPortfolio}
+              openPosition={(position) => {
+                setSelectedPosition({
+                  symbol: String(position.symbol),
+                  name: "Alpaca PAPER position",
+                  direction: position.side === "SHORT" ? "SELL" : "BUY",
+                  entry: preciseCash(Number(position.entry_price)),
+                  current: preciseCash(Number(position.current_price)),
+                  size: preciseCash(Number(position.market_value)),
+                  stop:
+                    position.stop_loss == null
+                      ? "NOT SET"
+                      : preciseCash(Number(position.stop_loss)),
+                  target:
+                    position.take_profit == null
+                      ? "NOT SET"
+                      : preciseCash(Number(position.take_profit)),
+                  pnl: Number(position.unrealized_pl),
+                  pct: Number(position.unrealized_pl_pct),
+                  strategy: String(position.strategy_name ?? "Unattributed"),
+                  status: String(position.status),
+                  classification: classifyTradeOrigin(position.trade_origin),
+                  origin: String(position.trade_origin ?? "STANDARD"),
+                  quantity: Number(position.quantity ?? 0),
+                  openedAt: String(position.opened_at ?? ""),
+                  brokerOrderId: String(
+                    position.broker_order_id ?? "NOT RECORDED",
+                  ),
+                  riskDecision: String(
+                    position.risk_decision_id ?? "PAPER RISK CONTROLS APPLIED",
+                  ),
+                } as UiPosition);
+                setModal("position");
+              }}
+            />
+          ) : section === "Risk Manager" ? (
+            <RiskSettingsWorkspace initial={persistence.riskSettings} />
+          ) : section === "Backtesting" ? (
+            <BacktestingWorkspace />
+          ) : section === "Charts" ? (
+            <AdvancedChartsWorkspace />
+          ) : section === "Notifications" ? (
+            <NotificationCenterWorkspace />
+          ) : section === "Diagnostics" ? (
+            <DiagnosticsWorkspace />
+          ) : section === "Settings" ? (
+            <div className="settings-stack">
+              <EnvironmentSettingsWorkspace />
+              <NotificationSettingsWorkspace />
+              <TutorialSettings />
+            </div>
+          ) : section === "Paper Trading" ? (
+            <BrokerWorkspace broker={displayedBroker} locked={locked} />
+          ) : section === "Trade Journal" ? (
+            <TradeJournalWorkspace />
+          ) : (
+            <div className="empty-state">
+              <span>{icons[nav.indexOf(section)]}</span>
+              <h2>{section}</h2>
+              <p>
+                This workspace is prepared for a future mission. Trading remains
+                in paper mode.
+              </p>
+            </div>
+          )}
+        </div>
       </main>
       <nav className="mobile-nav" aria-label="Mobile navigation">
         {[
@@ -2325,11 +2372,13 @@ function Dashboard(p: {
   emergency: () => void;
   pause: () => void;
   resume: () => void;
-  openPosition: (p: (typeof positions)[0]) => void;
+  openPosition: (p: UiPosition) => void;
   broker: BrokerDashboardData;
   persistence: DashboardPersistence;
-  livePositions: typeof positions;
+  livePositions: UiPosition[];
   portfolio: HostedPortfolio;
+  viewPortfolio: () => void;
+  viewBigMoney: () => void;
 }) {
   const liveInvested = p.livePositions.reduce(
     (sum, position) =>
@@ -2340,7 +2389,7 @@ function Dashboard(p: {
     p.portfolio.account?.unrealized_pl ??
     p.livePositions.reduce((sum, position) => sum + position.pnl, 0);
   const availableCash =
-    p.portfolio.account?.cash ?? p.broker.summary?.availableCash ?? 48860.42;
+    p.portfolio.account?.cash ?? p.broker.summary?.availableCash ?? 0;
   const livePortfolioValue =
     p.portfolio.account?.equity ?? availableCash + liveInvested;
   return (
@@ -2353,20 +2402,31 @@ function Dashboard(p: {
               <em>
                 {p.portfolio.source === "ALPACA_PAPER"
                   ? "ALPACA PAPER DATA"
-                  : "DEMO DATA"}
+                  : "NO SYNC DATA"}
               </em>
             </span>
-            <div className="hero-value">
-              {p.broker.marketDataSource === "ALPACA — IEX"
-                ? cash(livePortfolioValue)
-                : p.broker.summary?.netLiquidation != null
-                  ? cash(p.broker.summary.netLiquidation)
-                  : "$84,260.42"}
-            </div>
-            <div className="hero-change positive">
+            <div className="hero-value">{cash(livePortfolioValue)}</div>
+            <div
+              className={`hero-change ${liveProfitLoss >= 0 ? "positive" : "negative"}`}
+              data-tutorial="open-performance"
+            >
               <b>
-                {liveProfitLoss >= 0 ? "↗ +" : "↘ "}
-                {cash(liveProfitLoss)}
+                {liveProfitLoss > 0
+                  ? "WINNING"
+                  : liveProfitLoss < 0
+                    ? "LOSING"
+                    : "FLAT"}{" "}
+                · {liveProfitLoss >= 0 ? "+" : ""}
+                {preciseCash(liveProfitLoss)} · {liveProfitLoss >= 0 ? "+" : ""}
+                {(
+                  (liveProfitLoss /
+                    Math.max(
+                      Number(p.portfolio.account?.open_exposure ?? 0),
+                      1,
+                    )) *
+                  100
+                ).toFixed(2)}
+                %
               </b>
               <span>Open-position unrealized P/L</span>
             </div>
@@ -2382,7 +2442,7 @@ function Dashboard(p: {
                 value={
                   p.broker.summary?.availableCash != null
                     ? cash(p.broker.summary.availableCash)
-                    : "$48,860.42"
+                    : preciseCash(availableCash)
                 }
                 note="58.0% liquid"
               />
@@ -2425,17 +2485,18 @@ function Dashboard(p: {
             locked={p.locked}
             pause={p.pause}
             resume={p.resume}
+            portfolio={p.portfolio}
           />
-          <RecentTrades fills={p.portfolio.fills} />
-          <RecommendationCard
-            rec={p.rec}
-            locked={p.locked}
-            approve={p.approve}
-            reject={p.reject}
-            analysis={() => p.setModal("analysis")}
-            modify={() => p.setModal("modify")}
+          <RecentTrades
+            fills={p.portfolio.fills}
+            activity={p.portfolio.activity}
           />
-          <PositionTable rows={p.livePositions} open={p.openPosition} />
+          <BigMoneyDashboardLink open={p.viewBigMoney} />
+          <PositionTable
+            rows={p.livePositions}
+            open={p.openPosition}
+            viewAll={p.viewPortfolio}
+          />
         </div>
         <aside className="right-column">
           <RiskCard
@@ -2445,7 +2506,7 @@ function Dashboard(p: {
           />
           <SystemHealth broker={p.broker} persistence={p.persistence} />
           <DashboardNotificationSummary />
-          <Allocation />
+          <Allocation portfolio={p.portfolio} />
         </aside>
       </div>
     </>
@@ -2592,12 +2653,17 @@ function AutoTrader({
   locked,
   pause,
   resume,
+  portfolio,
 }: {
   auto: AutoState;
   locked: boolean;
   pause: () => void;
   resume: () => void;
+  portfolio: HostedPortfolio;
 }) {
+  const completed = journalSummary(portfolio.journal);
+  const todayPl = Number(portfolio.account?.realized_pl_today ?? 0);
+  const exposure = Number(portfolio.account?.open_exposure ?? 0);
   return (
     <section className="module auto-module">
       <header className="module-head">
@@ -2611,44 +2677,52 @@ function AutoTrader({
         <div className="auto-stats">
           <FinancialMetric
             label="TODAY'S P/L"
-            value="↗ +$384.20"
-            note="3 closed trades"
-            tone="positive"
+            value={`${todayPl >= 0 ? "+" : ""}${preciseCash(todayPl)}`}
+            note={`${completed.completed} completed trades`}
+            tone={todayPl >= 0 ? "positive" : "negative"}
           />
-          <FinancialMetric label="TRADES" value="3 / 8" note="5 remaining" />
-          <FinancialMetric label="DEPLOYED" value="$8,500" note="of $25,000" />
+          <FinancialMetric
+            label="TRADES"
+            value={String(completed.completed)}
+            note="Actual journal total"
+          />
+          <FinancialMetric
+            label="DEPLOYED"
+            value={preciseCash(exposure)}
+            note="Current open exposure"
+          />
           <FinancialMetric
             label="WIN / LOSS"
-            value="2 / 1"
-            note="66.7% win rate"
+            value={`${completed.wins} / ${completed.losses}`}
+            note={`${completed.winRate.toFixed(1)}% win rate`}
           />
         </div>
         <div className="risk-progress">
           <RiskProgress
             label="Daily profit target"
-            value="$384 / $1,000"
-            pct={38.4}
+            value={preciseCash(Math.max(todayPl, 0))}
+            pct={0}
             tone="gain"
           />
           <RiskProgress
             label="Daily loss limit"
-            value="$126 / $750"
-            pct={16.8}
+            value={preciseCash(Math.max(-todayPl, 0))}
+            pct={0}
             tone="loss"
           />
           <div className="limits">
             <span>
-              MAX TRADE <b>$2,500</b>
+              OPEN POSITIONS <b>{portfolio.positions.length}</b>
             </span>
             <span>
-              ALLOCATED <b>$25,000</b>
+              CAPITAL IN MARKET <b>{preciseCash(exposure)}</b>
             </span>
           </div>
         </div>
       </div>
       <footer>
         <span>
-          <i /> Monitoring 12 strategies
+          <i /> Monitoring configured production strategies
         </span>
         {auto === "ACTIVE" ? (
           <button className="button pause" onClick={pause}>
@@ -2687,32 +2761,60 @@ function RiskProgress({
     </div>
   );
 }
-function RecentTrades({ fills }: { fills: HostedPortfolio["fills"] }) {
-  const demoRows = [
-    ["14:32", "NVDA", "BUY", "$2,100", "WIN", "+$82.40", "Momentum V2"],
-    ["12:18", "MSFT", "BUY", "$1,850", "WIN", "+$46.10", "Quality Breakout"],
-    ["10:06", "EUR/USD", "SELL", "$1,600", "LOSS", "−$26.30", "FX Trend"],
-  ];
-  const rows = fills.length
-    ? fills.map((fill) => [
-        new Date(String(fill.executed_at)).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        String(fill.symbol),
-        String(fill.side),
-        cash(Number(fill.quantity) * Number(fill.price)),
-        "FILLED",
-        "—",
-        String(fill.strategy_name ?? "Alpaca PAPER"),
-      ])
-    : demoRows;
+function RecentTrades({
+  fills,
+  activity,
+}: {
+  fills: HostedPortfolio["fills"];
+  activity: HostedPortfolio["activity"];
+}) {
+  const fillRows = fills.map((fill) => [
+    new Date(String(fill.executed_at)).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    String(fill.symbol),
+    String(fill.side),
+    cash(Number(fill.quantity) * Number(fill.price)),
+    "FILLED",
+    "—",
+    String(fill.strategy_name ?? "Alpaca PAPER"),
+  ]);
+  const activityRows = activity.map((event) => {
+    const symbol = String(event.metadata?.symbol ?? "SYSTEM");
+    const action = event.action.replaceAll("_", " ");
+    const language =
+      event.action === "PAPER_ORDER_SUBMITTED"
+        ? `${symbol} PAPER trade submitted`
+        : event.action === "PAPER_ORDER_REJECTED"
+          ? `Risk or broker rejected ${symbol}`
+          : event.action === "RECOMMENDATION_APPROVED"
+            ? `Big Money recommendation approved`
+            : event.action === "AUTO_TRADER_PAUSED"
+              ? "Auto Trader paused"
+              : event.action === "AUTO_TRADER_RESUMED"
+                ? "Auto Trader resumed"
+                : action;
+    return [
+      new Date(event.created_at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      symbol,
+      "EVENT",
+      "—",
+      language,
+      "—",
+      String(event.metadata?.mode ?? "PAPER"),
+    ];
+  });
+  const rows = [...activityRows, ...fillRows].slice(0, 12);
   return (
     <section className="module recent">
       <header className="module-head">
         <div>
           <span className="section-label">RECENT AUTOMATED ACTIVITY</span>
-          <p>Today · Paper trades</p>
+          <p>Actual owner-scoped PAPER events</p>
         </div>
         <button className="text-button">VIEW ALL →</button>
       </header>
@@ -2758,125 +2860,36 @@ function RecentTrades({ fills }: { fills: HostedPortfolio["fills"] }) {
                 ))}
               </tr>
             ))}
+            {!rows.length && (
+              <tr>
+                <td colSpan={7} className="table-empty">
+                  NO REAL PAPER ACTIVITY YET
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
     </section>
   );
 }
-function RecommendationCard({
-  rec,
-  locked,
-  approve,
-  reject,
-  analysis,
-  modify,
-}: {
-  rec: TradeRecommendation;
-  locked: boolean;
-  approve: () => void;
-  reject: () => void;
-  analysis: () => void;
-  modify: () => void;
-}) {
+function BigMoneyDashboardLink({ open }: { open: () => void }) {
   return (
     <section className="module recommendation">
       <header className="module-head">
         <div>
-          <span className="section-label">BIG MONEY OPPORTUNITY</span>
-          <p>Owner approval required · Demo research</p>
+          <span className="section-label">BIG MONEY OPPORTUNITIES</span>
+          <p>Actual owner-scoped research and approval workflow</p>
         </div>
-        <StatusBadge status={rec.status} />
       </header>
-      <div className="rec-main">
-        <div className="rec-identity">
-          <div className="symbol-icon">A</div>
-          <div>
-            <h2>
-              AAPL <DirectionBadge direction="BUY" />
-            </h2>
-            <p>Apple Inc. · NASDAQ</p>
-          </div>
-        </div>
-        <div className="strategy-score">
-          <strong>{rec.score}</strong>
-          <span>/100</span>
-          <small>STRATEGY SCORE*</small>
-        </div>
-        <div className="rec-metrics">
-          <FinancialMetric
-            label="MARKET PRICE"
-            value="$227.42"
-            note="Market quote"
-          />
-          <FinancialMetric
-            label="INVESTMENT"
-            value={cash(rec.investment)}
-            note="Suggested"
-          />
-          <FinancialMetric
-            label="MAX LOSS"
-            value="−$280"
-            note="5.6% of position"
-            tone="negative"
-          />
-          <FinancialMetric
-            label="TARGET"
-            value="$248.50"
-            note="+9.27% upside"
-            tone="positive"
-          />
-          <FinancialMetric
-            label="RISK / REWARD"
-            value="1 : 2.7"
-            note="Favorable"
-          />
-          <FinancialMetric
-            label="CONDITION"
-            value="BULLISH"
-            note="Consolidation"
-            tone="positive"
-          />
-        </div>
-        <div className="research-summary">
-          <span>MODEL RESEARCH SUMMARY</span>
-          <p>
-            Strong relative momentum and improving institutional volume support
-            a continuation setup above the 20-day range. Fundamentals remain
-            resilient; near-term volatility is contained.
-          </p>
-          <small>
-            Generated 22 minutes ago · Scores are model indicators, not
-            probability of profit.
-          </small>
-        </div>
+      <div className="table-empty">
+        Open Big Money to review current persisted recommendations. No sample
+        recommendation is shown on the production Dashboard.
       </div>
-      {rec.status === "APPROVED" && (
-        <div className="approved-note">
-          ✓ APPROVED — EXECUTION ENGINE NOT CONNECTED
-        </div>
-      )}
       <footer className="rec-actions">
-        <button className="button" onClick={analysis}>
-          VIEW ANALYSIS
-        </button>
-        <button className="button" onClick={modify}>
-          MODIFY
-        </button>
         <span />
-        <button
-          className="button reject"
-          disabled={rec.status !== "PENDING"}
-          onClick={reject}
-        >
-          REJECT
-        </button>
-        <button
-          className="button primary"
-          disabled={rec.status !== "PENDING" || locked}
-          onClick={approve}
-        >
-          APPROVE · PAPER ONLY
+        <button className="button primary" onClick={open}>
+          OPEN BIG MONEY →
         </button>
       </footer>
     </section>
@@ -2885,9 +2898,11 @@ function RecommendationCard({
 function PositionTable({
   rows,
   open,
+  viewAll,
 }: {
-  rows: typeof positions;
-  open: (p: (typeof positions)[0]) => void;
+  rows: UiPosition[];
+  open: (p: UiPosition) => void;
+  viewAll: () => void;
 }) {
   return (
     <section className="module position-module">
@@ -2896,7 +2911,9 @@ function PositionTable({
           <span className="section-label">OPEN POSITIONS</span>
           <p>{rows.length} positions · synchronized PAPER exposure</p>
         </div>
-        <button className="text-button">VIEW PORTFOLIO →</button>
+        <button className="text-button" onClick={viewAll}>
+          VIEW ALL POSITIONS →
+        </button>
       </header>
       <div className="table-scroll">
         <table className="position-table">
@@ -2905,6 +2922,7 @@ function PositionTable({
               {[
                 "ASSET",
                 "DIRECTION",
+                "CLASS",
                 "ENTRY",
                 "CURRENT",
                 "POSITION SIZE",
@@ -2936,6 +2954,12 @@ function PositionTable({
                 <td>
                   <DirectionBadge direction={x.direction} />
                 </td>
+                <td>
+                  {String(
+                    (x as typeof x & { classification?: string })
+                      .classification ?? "STANDARD",
+                  )}
+                </td>
                 <td>{x.entry}</td>
                 <td>{x.current}</td>
                 <td>{x.size}</td>
@@ -2954,6 +2978,14 @@ function PositionTable({
                 </td>
               </tr>
             ))}
+            {!rows.length && (
+              <tr>
+                <td colSpan={12} className="table-empty">
+                  NO ACTIVE TRADES — When a PAPER trade opens, it will appear
+                  here.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -3107,8 +3139,11 @@ function BrokerWorkspace({
     [confirming, setConfirming] = useState(false),
     [status, setStatus] = useState("READY"),
     [message, setMessage] = useState(""),
-    [clientOrderId, setClientOrderId] = useState(() => crypto.randomUUID());
+    [clientOrderId, setClientOrderId] = useState(newManualRequestId),
+    submitting = useRef(false);
   const submit = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
     setStatus("SUBMITTED");
     setMessage("");
     try {
@@ -3135,11 +3170,12 @@ function BrokerWorkspace({
       };
       setStatus(data.status ?? "REJECTED");
       setMessage(data.message ?? data.code ?? "Paper order rejected.");
-      if (response.ok) setClientOrderId(crypto.randomUUID());
+      setClientOrderId(newManualRequestId());
     } catch {
       setStatus("ERROR");
       setMessage("Paper broker request failed safely.");
     } finally {
+      submitting.current = false;
       setConfirming(false);
     }
   };
@@ -3160,9 +3196,7 @@ function BrokerWorkspace({
             note={
               broker.adapter === "ALPACA_PAPER"
                 ? "Cloud-native Trading API"
-                : broker.adapter === "IBKR_TWS_LOCAL"
-                  ? "IB Gateway / TWS API"
-                  : "Client Portal Gateway · local only"
+                : "Hosted Alpaca PAPER configuration required"
             }
           />
           <FinancialMetric
@@ -3197,11 +3231,7 @@ function BrokerWorkspace({
             note={
               broker.source === "ALPACA_PAPER"
                 ? "ALPACA — PAPER"
-                : broker.source === "IBKR_PAPER"
-                  ? broker.marketDataDelayed
-                    ? "IBKR PAPER — DELAYED"
-                    : "IBKR PAPER DATA"
-                  : "DEMO fallback active"
+                : "No authoritative PAPER sync yet"
             }
           />
         </div>
@@ -3220,7 +3250,7 @@ function BrokerWorkspace({
         <header className="module-head">
           <div>
             <span className="section-label">PAPER ORDER TICKET</span>
-            <p>Trade Permission → Risk Manager → Paper Broker Adapter → IBKR</p>
+            <p>Trade Permission → Risk Manager → Alpaca PAPER Trading API</p>
           </div>
           <span className="paper-trade-label">PAPER TRADE — NO REAL MONEY</span>
         </header>
@@ -3299,8 +3329,7 @@ function BrokerWorkspace({
         </button>
         {broker.status !== "PAPER_CONNECTED" && (
           <p className="ticket-help">
-            Connect an authenticated IBKR paper gateway before submitting. Demo
-            data remains active.
+            Connect the hosted Alpaca PAPER broker before submitting.
           </p>
         )}
       </section>
@@ -3322,7 +3351,7 @@ function BrokerWorkspace({
             </p>
             <div className="paper-warning">
               This request will pass through TradePermissionService and Risk
-              Manager before reaching the IBKR PAPER adapter.
+              Manager before reaching the Alpaca PAPER adapter.
             </div>
             <footer>
               <button className="button" onClick={() => setConfirming(false)}>
@@ -3357,7 +3386,12 @@ function SystemHealthItem({
     </div>
   );
 }
-function Allocation() {
+function Allocation({ portfolio }: { portfolio: HostedPortfolio }) {
+  const equity = Number(portfolio.account?.equity ?? 0);
+  const availableCash = Number(portfolio.account?.cash ?? 0);
+  const exposure = Number(portfolio.account?.open_exposure ?? 0);
+  const cashPct = equity > 0 ? (availableCash / equity) * 100 : 0;
+  const exposurePct = equity > 0 ? (exposure / equity) * 100 : 0;
   return (
     <section className="module allocation">
       <header className="module-head">
@@ -3368,25 +3402,18 @@ function Allocation() {
       </header>
       <div className="donut">
         <span>
-          $84.3K<small>TOTAL</small>
+          {equity > 0 ? cash(equity) : "$0"}
+          <small>{equity > 0 ? "TOTAL" : "NO SYNC DATA"}</small>
         </span>
       </div>
       <div className="legend">
         <span>
           <i className="cash" />
-          Cash <b>58%</b>
+          Cash <b>{cashPct.toFixed(1)}%</b>
         </span>
         <span>
           <i className="equity" />
-          Equities <b>25%</b>
-        </span>
-        <span>
-          <i className="forex" />
-          Forex <b>9%</b>
-        </span>
-        <span>
-          <i className="metal" />
-          Metals <b>8%</b>
+          Open exposure <b>{exposurePct.toFixed(1)}%</b>
         </span>
       </div>
     </section>
@@ -3415,7 +3442,7 @@ function ModalFrame({
       >
         <header>
           <div>
-            <span className="section-label">PAPER RESEARCH · DEMO</span>
+            <span className="section-label">PAPER COMMAND CENTER</span>
             <h2 id="modal-title">{title}</h2>
           </div>
           <button aria-label="Close dialog" onClick={close}>
@@ -3572,7 +3599,15 @@ function RecommendationDetail({
     </div>
   );
 }
-function PositionDetail({ p }: { p: (typeof positions)[0] }) {
+function PositionDetail({ p }: { p: UiPosition }) {
+  const details = p as typeof p & {
+    classification?: string;
+    origin?: string;
+    quantity?: number;
+    openedAt?: string;
+    brokerOrderId?: string;
+    riskDecision?: string;
+  };
   return (
     <div className="modal-content">
       <div className="detail-summary">
@@ -3595,6 +3630,16 @@ function PositionDetail({ p }: { p: (typeof positions)[0] }) {
           note="Market quote"
         />
         <FinancialMetric
+          label="BROKER ORDER REFERENCE"
+          value={details.brokerOrderId ?? "NOT RECORDED"}
+          note="Safe identifier only"
+        />
+        <FinancialMetric
+          label="RISK DECISION"
+          value={details.riskDecision ?? "PAPER RISK CONTROLS APPLIED"}
+          note="Owner-scoped audit linkage"
+        />
+        <FinancialMetric
           label="POSITION SIZE"
           value={p.size}
           note="Capital deployed"
@@ -3605,12 +3650,37 @@ function PositionDetail({ p }: { p: (typeof positions)[0] }) {
           value={p.target}
           note="Position objective"
         />
+        <FinancialMetric
+          label="ORIGIN"
+          value={details.classification ?? "STANDARD"}
+          note={(details.origin ?? "STANDARD").replaceAll("_", " ")}
+        />
+        <FinancialMetric
+          label="QUANTITY"
+          value={String(details.quantity ?? "—")}
+          note={
+            details.openedAt
+              ? `Opened ${new Date(details.openedAt).toLocaleString()}`
+              : "Broker timestamp unavailable"
+          }
+        />
+      </div>
+      <div
+        className="position-detail-chart"
+        aria-label="Entry to current price"
+      >
+        <span>ENTRY {p.entry}</span>
+        <i />
+        <span>CURRENT {p.current}</span>
       </div>
       <div className="research-full">
         <b>POSITION MANAGEMENT</b>
         <p>
-          Strategy: {p.strategy}. This position is shown for demonstration only.
-          Position-management automation and broker execution are not connected.
+          Strategy: {p.strategy}. Alpaca PAPER is authoritative for broker
+          state; stop, target, and lifecycle metadata are synchronized through
+          the hosted worker. Related fills, journal history, risk decisions, and
+          safe broker references remain owner-scoped in Portfolio and Trade
+          Journal.
         </p>
       </div>
     </div>

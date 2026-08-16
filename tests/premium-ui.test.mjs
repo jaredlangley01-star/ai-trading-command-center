@@ -16,7 +16,7 @@ test("premium dashboard renders responsive financial modules", async () => {
   for (const componentName of [
     "PortfolioChart",
     "AutoTrader",
-    "RecommendationCard",
+    "BigMoneyDashboardLink",
     "PositionTable",
     "RiskCard",
     "SystemHealth",

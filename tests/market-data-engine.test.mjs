@@ -85,7 +85,7 @@ test("market data engine returns bid ask last and candles", async () => {
   assert.equal(result.quote.last, 226.5);
   assert.equal(result.candles.length, 1);
 });
-test("delayed IBKR quotes remain marked and the dashboard labels them", async () => {
+test("legacy delayed quotes remain marked without stale hosted UI labels", async () => {
   const quote = {
     assetId: "aapl",
     bid: 225,
@@ -114,7 +114,8 @@ test("delayed IBKR quotes remain marked and the dashboard labels them", async ()
     new URL("../components/trading-command-center.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(dashboard, /IBKR PAPER — DELAYED/);
+  assert.doesNotMatch(dashboard, /IBKR PAPER — DELAYED/);
+  assert.match(dashboard, /ALPACA — PAPER/);
 });
 test("strategies cannot import or call IBKR adapters", async () => {
   const [contracts, pipeline] = await Promise.all([

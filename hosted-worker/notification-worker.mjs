@@ -7,21 +7,21 @@ import {
   shouldDeliver,
 } from "../src/services/notifications/policy.ts";
 
-for (const name of [
-  "NEXT_PUBLIC_SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
-  "VAPID_PUBLIC_KEY",
-  "VAPID_PRIVATE_KEY",
-  "VAPID_SUBJECT",
-])
+for (const name of ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
   if (!process.env[name]) throw new Error(`MISSING_ENV:${name}`);
 if (process.env.TRADING_RUNTIME_MODE !== "HOSTED_PRODUCTION")
   throw new Error("HOSTED_PRODUCTION_REQUIRED");
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY,
+const pushConfigured = Boolean(
+  process.env.VAPID_SUBJECT &&
+    process.env.VAPID_PUBLIC_KEY &&
+    process.env.VAPID_PRIVATE_KEY,
 );
+if (pushConfigured)
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -120,6 +120,17 @@ async function enqueueHealthTransitions() {
   }
 }
 async function deliverEvent(event) {
+  if (!pushConfigured) {
+    await db
+      .from("notification_events")
+      .update({
+        status: "FAILED",
+        suppression_reason: "VAPID_NOT_CONFIGURED",
+        processed_at: new Date().toISOString(),
+      })
+      .eq("id", event.id);
+    return;
+  }
   const { data: preferenceRow } = await db
     .from("notification_preferences")
     .select("preferences")
@@ -261,10 +272,15 @@ async function cycle() {
         user_id: owner.id,
         worker_id:
           process.env.NOTIFICATION_WORKER_ID ?? "railway-notification-worker",
-        status: "ONLINE",
+        status: pushConfigured ? "ONLINE" : "ERROR",
         last_seen_at: new Date().toISOString(),
         version: process.env.WORKER_VERSION ?? "TRADE-016",
-        metadata: { runtime: "HOSTED_PRODUCTION", execution: "NONE" },
+        metadata: {
+          runtime: "HOSTED_PRODUCTION",
+          execution: "NONE",
+          pushConfigured,
+          queueProcessing: true,
+        },
       },
       { onConflict: "user_id,worker_id" },
     );

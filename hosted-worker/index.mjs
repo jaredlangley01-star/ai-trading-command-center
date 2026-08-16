@@ -36,24 +36,31 @@ import {
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
 const automatedEntrySource = ["AUTO", "TRADER"].join("_");
+const brokerApiKey =
+  process.env.ALPACA_PAPER_API_KEY ?? process.env.ALPACA_BROKER_API_KEY;
+const brokerApiSecret =
+  process.env.ALPACA_PAPER_API_SECRET ?? process.env.ALPACA_BROKER_API_SECRET;
+const brokerBaseUrl =
+  process.env.ALPACA_PAPER_BASE_URL ??
+  process.env.ALPACA_BROKER_BASE_URL ??
+  PAPER_URL;
 const required = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "ALPACA_BROKER_API_KEY",
-  "ALPACA_BROKER_API_SECRET",
   "ALPACA_API_KEY",
   "ALPACA_API_SECRET",
 ];
 for (const name of required)
   if (!process.env[name]) throw new Error(`MISSING_ENV:${name}`);
+if (!brokerApiKey) throw new Error("MISSING_ENV:ALPACA_PAPER_API_KEY");
+if (!brokerApiSecret) throw new Error("MISSING_ENV:ALPACA_PAPER_API_SECRET");
 if (process.env.TRADING_RUNTIME_MODE !== "HOSTED_PRODUCTION")
   throw new Error("HOSTED_PRODUCTION_REQUIRED");
 if (process.env.BROKER_ADAPTER !== "ALPACA_PAPER")
   throw new Error("LIVE_TRADING_LOCKED");
 if ((process.env.ALPACA_BROKER_ENVIRONMENT ?? "PAPER") !== "PAPER")
   throw new Error("LIVE_TRADING_LOCKED");
-if ((process.env.ALPACA_BROKER_BASE_URL ?? PAPER_URL) !== PAPER_URL)
-  throw new Error("LIVE_TRADING_LOCKED");
+if (brokerBaseUrl !== PAPER_URL) throw new Error("LIVE_TRADING_LOCKED");
 if ((process.env.ALPACA_DATA_FEED ?? "iex").toLowerCase() !== "iex")
   throw new Error("IEX_FEED_REQUIRED");
 
@@ -77,11 +84,7 @@ const headers = (key, secret) => ({
   "APCA-API-KEY-ID": key,
   "APCA-API-SECRET-KEY": secret,
 });
-const brokerHeaders = () =>
-  headers(
-    process.env.ALPACA_BROKER_API_KEY,
-    process.env.ALPACA_BROKER_API_SECRET,
-  );
+const brokerHeaders = () => headers(brokerApiKey, brokerApiSecret);
 let stopping = false;
 
 async function json(url, init = {}) {
@@ -574,17 +577,36 @@ async function synchronizeOwnerPortfolio(
   portfolioHistory,
   asOf,
 ) {
-  const [{ data: controls }, { data: legacyPositions }] = await Promise.all([
+  const [
+    { data: controls },
+    { data: legacyPositions },
+    { data: platformOrders },
+    { data: automatedDecisions },
+  ] = await Promise.all([
     db
       .from("paper_positions")
       .select(
-        "broker_position_id,stop_loss,take_profit,strategy_name,opened_at",
+        "broker_position_id,broker_order_id,symbol,stop_loss,take_profit,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status",
       )
       .eq("user_id", ownerId),
     db
       .from("positions")
       .select("symbol,stop_loss,take_profit,source,opened_at")
       .eq("user_id", ownerId),
+    db
+      .from("orders")
+      .select(
+        "id,symbol,source,client_order_id,automated_decision_id,recommendation_id,created_at",
+      )
+      .eq("user_id", ownerId)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    db
+      .from("automated_decisions")
+      .select("id,strategies,risk_decision_id")
+      .eq("user_id", ownerId)
+      .order("created_at", { ascending: false })
+      .limit(200),
   ]);
   const legacyMap = new Map(
     (legacyPositions ?? []).map((row) => [
@@ -595,12 +617,48 @@ async function synchronizeOwnerPortfolio(
   const controlMap = new Map(
     (controls ?? []).map((row) => [row.broker_position_id, row]),
   );
+  const platformOrderByClientId = new Map(
+    (platformOrders ?? []).map((order) => [order.client_order_id, order]),
+  );
+  const automatedDecisionMap = new Map(
+    (automatedDecisions ?? []).map((decision) => [decision.id, decision]),
+  );
+  const orderMap = new Map();
+  for (const brokerOrder of orders ?? []) {
+    const platformOrder = platformOrderByClientId.get(
+      String(brokerOrder.client_order_id ?? ""),
+    );
+    const symbol = String(brokerOrder.symbol).toUpperCase();
+    if (platformOrder && !orderMap.has(symbol))
+      orderMap.set(symbol, platformOrder);
+  }
   const openIds = positions.map((position) => String(position.asset_id));
   for (const position of positions) {
     const id = String(position.asset_id);
     const control =
       controlMap.get(id) ??
       legacyMap.get(String(position.symbol).toUpperCase());
+    const platformOrder = orderMap.get(String(position.symbol).toUpperCase());
+    const automatedDecision = automatedDecisionMap.get(
+      platformOrder?.automated_decision_id,
+    );
+    const automatedStrategies = Array.isArray(automatedDecision?.strategies)
+      ? automatedDecision.strategies
+      : [];
+    const tradeOrigin =
+      control?.trade_origin ??
+      (String(platformOrder?.source ?? control?.source ?? "").toUpperCase() ===
+      "BIG_MONEY"
+        ? "BIG_MONEY"
+        : String(
+              platformOrder?.source ?? control?.source ?? "",
+            ).toUpperCase() === "AUTO_TRADER"
+          ? "AUTO_TRADER"
+          : String(
+                platformOrder?.source ?? control?.source ?? "",
+              ).toUpperCase() === "MANUAL"
+            ? "MANUAL"
+            : "STANDARD");
     await db.from("paper_positions").upsert(
       {
         user_id: ownerId,
@@ -617,10 +675,22 @@ async function synchronizeOwnerPortfolio(
         take_profit: control?.take_profit ?? null,
         strategy_name:
           control?.strategy_name ??
-          control?.source ??
-          "External / Manual PAPER",
+          (automatedStrategies.length
+            ? String(automatedStrategies[0])
+            : tradeOrigin === "BIG_MONEY"
+              ? "Big Money"
+              : tradeOrigin === "AUTO_TRADER"
+                ? "Combined Opportunity Engine"
+                : "Manual / External PAPER"),
+        trade_origin: tradeOrigin,
+        broker_order_id: control?.broker_order_id ?? platformOrder?.id ?? null,
+        risk_decision_id:
+          control?.risk_decision_id ??
+          automatedDecision?.risk_decision_id ??
+          null,
         status: "OPEN",
-        opened_at: control?.opened_at ?? asOf,
+        opened_at:
+          control?.status === "CLOSED" ? asOf : (control?.opened_at ?? asOf),
         last_synced_at: asOf,
       },
       { onConflict: "user_id,broker_position_id" },
@@ -643,13 +713,96 @@ async function synchronizeOwnerPortfolio(
       await submitProtectivePaperExit(ownerId, position, "TAKE_PROFIT");
   }
   for (const prior of controls ?? [])
-    if (!openIds.includes(prior.broker_position_id))
+    if (!openIds.includes(prior.broker_position_id)) {
+      const exitFill = fills
+        .filter(
+          (fill) =>
+            String(fill.symbol).toUpperCase() ===
+              String(prior.symbol).toUpperCase() &&
+            String(fill.side).toUpperCase() ===
+              (prior.side === "SHORT" ? "BUY" : "SELL") &&
+            Date.parse(String(fill.transaction_time ?? asOf)) >=
+              Date.parse(String(prior.opened_at ?? asOf)),
+        )
+        .sort(
+          (a, b) =>
+            Date.parse(String(b.transaction_time ?? asOf)) -
+            Date.parse(String(a.transaction_time ?? asOf)),
+        )[0];
+      const closedPosition = (
+        await db
+          .from("paper_positions")
+          .select("*")
+          .eq("user_id", ownerId)
+          .eq("broker_position_id", prior.broker_position_id)
+          .maybeSingle()
+      ).data;
+      if (closedPosition && exitFill) {
+        const direction = closedPosition.side === "SHORT" ? "SHORT" : "LONG";
+        const quantity = number(closedPosition.quantity);
+        const entryPrice = number(closedPosition.entry_price);
+        const exitPrice = number(exitFill.price);
+        const grossPl =
+          (exitPrice - entryPrice) *
+          quantity *
+          (direction === "SHORT" ? -1 : 1);
+        const tradeOrigin = ["BIG_MONEY", "AUTO_TRADER", "MANUAL"].includes(
+          closedPosition.trade_origin,
+        )
+          ? closedPosition.trade_origin
+          : "STANDARD";
+        const classification =
+          tradeOrigin === "BIG_MONEY"
+            ? "BIG"
+            : tradeOrigin === "AUTO_TRADER"
+              ? "SMALL"
+              : "STANDARD";
+        await db.from("completed_paper_trades").upsert(
+          {
+            user_id: ownerId,
+            lifecycle_key: `${prior.broker_position_id}:${String(closedPosition.opened_at ?? asOf)}`,
+            broker_position_id: prior.broker_position_id,
+            broker_order_id: closedPosition.broker_order_id,
+            symbol: closedPosition.symbol,
+            classification,
+            trade_origin: tradeOrigin,
+            strategy_name: closedPosition.strategy_name,
+            direction,
+            quantity,
+            entry_price: entryPrice,
+            entry_timestamp: closedPosition.opened_at ?? asOf,
+            exit_price: exitPrice,
+            exit_timestamp: String(exitFill.transaction_time ?? asOf),
+            gross_pl: grossPl,
+            costs: 0,
+            net_pl: grossPl,
+            return_pct:
+              entryPrice * quantity > 0
+                ? (grossPl / (entryPrice * quantity)) * 100
+                : 0,
+            stop_loss: closedPosition.stop_loss,
+            take_profit: closedPosition.take_profit,
+            entry_reason: closedPosition.strategy_name,
+            exit_reason: closedPosition.exit_reason ?? "BROKER_POSITION_CLOSED",
+            risk_decision:
+              closedPosition.risk_decision_id == null
+                ? "PAPER_RISK_CONTROLS_APPLIED"
+                : String(closedPosition.risk_decision_id),
+            environment: "PAPER",
+            metadata: {
+              brokerExecutionId: String(exitFill.id ?? exitFill.activity_id),
+            },
+          },
+          { onConflict: "user_id,lifecycle_key" },
+        );
+      }
       await db
         .from("paper_positions")
         .update({ status: "CLOSED", closed_at: asOf, last_synced_at: asOf })
         .eq("user_id", ownerId)
         .eq("broker_position_id", prior.broker_position_id)
         .in("status", ["OPEN", "EXIT_PENDING"]);
+    }
   const unrealized = positions.reduce(
     (sum, position) => sum + number(position.unrealized_pl),
     0,
@@ -695,18 +848,32 @@ async function synchronizeOwnerPortfolio(
   );
   if (fills.length)
     await db.from("paper_broker_fills").upsert(
-      fills.map((fill) => ({
-        user_id: ownerId,
-        broker_execution_id: String(fill.id ?? fill.activity_id),
-        broker_order_id: String(fill.order_id ?? ""),
-        symbol: String(fill.symbol).toUpperCase(),
-        side: String(fill.side).toUpperCase() === "SELL" ? "SELL" : "BUY",
-        quantity: number(fill.qty),
-        price: number(fill.price),
-        strategy_name: "Alpaca PAPER",
-        executed_at: String(fill.transaction_time ?? asOf),
-        raw: fill,
-      })),
+      fills.map((fill) => {
+        const platformOrder = orderMap.get(String(fill.symbol).toUpperCase());
+        const origin = ["BIG_MONEY", "AUTO_TRADER", "MANUAL"].includes(
+          String(platformOrder?.source).toUpperCase(),
+        )
+          ? String(platformOrder.source).toUpperCase()
+          : "STANDARD";
+        return {
+          user_id: ownerId,
+          broker_execution_id: String(fill.id ?? fill.activity_id),
+          broker_order_id: String(fill.order_id ?? ""),
+          symbol: String(fill.symbol).toUpperCase(),
+          side: String(fill.side).toUpperCase() === "SELL" ? "SELL" : "BUY",
+          quantity: number(fill.qty),
+          price: number(fill.price),
+          strategy_name:
+            origin === "AUTO_TRADER"
+              ? "Auto Trader"
+              : origin === "BIG_MONEY"
+                ? "Big Money"
+                : "Manual / External PAPER",
+          trade_origin: origin,
+          executed_at: String(fill.transaction_time ?? asOf),
+          raw: fill,
+        };
+      }),
       { onConflict: "user_id,broker_execution_id", ignoreDuplicates: true },
     );
   for (const fill of fills) {
