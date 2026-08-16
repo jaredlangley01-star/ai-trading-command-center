@@ -41,6 +41,18 @@ export function findMissingDiagnosticMigrations(
   );
 }
 
+export function migrationQueryFailureDetail(error: {
+  code?: string;
+  message?: string;
+}) {
+  const permissionDenied =
+    error.code === "42501" ||
+    /permission denied|row-level security/i.test(error.message ?? "");
+  return permissionDenied
+    ? "Migration check failed: permission denied."
+    : `Migration check failed${error.code ? ` (${error.code})` : ""}.`;
+}
+
 export function heartbeatIsFresh(
   heartbeat: WorkerHeartbeat | null | undefined,
   now = Date.now(),

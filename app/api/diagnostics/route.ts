@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedOwner } from "@/src/lib/supabase/auth";
-import { createSupabaseServerClient } from "@/src/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/src/lib/supabase/server";
+import { getSupabaseProjectIdentity } from "@/src/lib/supabase/config";
 import { getEnvironmentReadiness } from "@/src/config/environments";
 import { getTradingRuntimeMode } from "@/src/config/runtime";
 import {
@@ -8,6 +12,7 @@ import {
   heartbeatIsFresh,
   readTradingWorkerHealth,
   REQUIRED_DIAGNOSTIC_MIGRATIONS,
+  migrationQueryFailureDetail,
   safeDiagnosticError,
   type DiagnosticCheck,
   type DiagnosticState,
@@ -78,6 +83,8 @@ export async function GET() {
         generatedAt,
         503,
       );
+    const migrationAdmin = createSupabaseAdminClient();
+    const migrationDb = migrationAdmin ?? db;
     const [worker, notification, migration, risk, positions] =
       await Promise.all([
         db
@@ -94,7 +101,7 @@ export async function GET() {
           .order("last_seen_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
-        db
+        migrationDb
           .from("schema_migrations")
           .select("version")
           .order("version", { ascending: true }),
@@ -124,11 +131,34 @@ export async function GET() {
         Boolean(process.env.ALPACA_API_KEY && process.env.ALPACA_API_SECRET),
       runtimeHealthy =
         workerHealth.hostedRuntime || vercelRuntime === "HOSTED_PRODUCTION";
+    const migrationVersions = (migration.data ?? []).flatMap(({ version }) =>
+      typeof version === "string" ? [version] : [],
+    );
     const missingMigrations = findMissingDiagnosticMigrations(migration.data);
+    const project = getSupabaseProjectIdentity();
+    const migrationTrace = {
+      querySucceeded: !migration.error,
+      client: migrationAdmin ? "SERVER_SERVICE_ROLE" : "AUTHENTICATED_ANON",
+      rowCount: migration.error ? null : migrationVersions.length,
+      returnedVersions: migration.error ? [] : migrationVersions,
+      expectedVersions: [...REQUIRED_DIAGNOSTIC_MIGRATIONS],
+      supabaseHostname: project.hostname,
+      supabaseProjectRef: project.projectRef,
+      errorCode: migration.error?.code ?? null,
+      error: migration.error
+        ? migrationQueryFailureDetail(migration.error)
+        : null,
+    };
     const databaseErrors = [
       queryError("Railway Trading Worker", worker.error),
       queryError("Railway Notification Worker", notification.error),
-      queryError("Database migrations", migration.error),
+      migration.error
+        ? safe(
+            "Database migrations",
+            "DEGRADED",
+            migrationQueryFailureDetail(migration.error),
+          )
+        : null,
       queryError("Risk Manager", risk.error),
       queryError("Position Protection", positions.error),
     ].filter(Boolean) as DiagnosticCheck[];
@@ -286,6 +316,7 @@ export async function GET() {
           "CONFIGURATION_CHECK",
         ],
         secrets: "REDACTED",
+        diagnosticTrace: { migrations: migrationTrace },
       },
       { headers: noStoreHeaders },
     );
