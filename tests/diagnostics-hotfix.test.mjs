@@ -20,7 +20,7 @@ test("successful diagnostics run accepts a fresh authenticated API payload", () 
     new URL("../components/trade-016-workspaces.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(client, /fetch\("\/api\/diagnostics"/);
+  assert.match(client, /`\/api\/diagnostics\?run=/);
   assert.match(client, /credentials: "same-origin"/);
   assert.match(client, /if \(payload\?\.checks\) setData\(payload\)/);
   assert.match(client, /data\?\.generatedAt/);
@@ -125,8 +125,8 @@ test("missing LIVE credentials remain not configured and locked", () => {
 });
 
 test("TRADE-016.1 migration detection remains the final committed version", () => {
-  const route = fs.readFileSync(
-    new URL("../app/api/diagnostics/route.ts", import.meta.url),
+  const diagnostics = fs.readFileSync(
+    new URL("../src/services/diagnostics.ts", import.meta.url),
     "utf8",
   );
   const migration = fs.readFileSync(
@@ -136,7 +136,7 @@ test("TRADE-016.1 migration detection remains the final committed version", () =
     ),
     "utf8",
   );
-  assert.match(route, /202608140010_trade_016_final_production/);
+  assert.match(diagnostics, /202608140010_trade_016_final_production/);
   assert.ok(
     migration.lastIndexOf("insert into schema_migrations (version)") >
       migration.lastIndexOf("create policy"),

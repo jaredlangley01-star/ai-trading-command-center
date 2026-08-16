@@ -4,18 +4,24 @@ import { createSupabaseServerClient } from "@/src/lib/supabase/server";
 import { getEnvironmentReadiness } from "@/src/config/environments";
 import { getTradingRuntimeMode } from "@/src/config/runtime";
 import {
+  findMissingDiagnosticMigrations,
   heartbeatIsFresh,
   readTradingWorkerHealth,
+  REQUIRED_DIAGNOSTIC_MIGRATIONS,
   safeDiagnosticError,
   type DiagnosticCheck,
   type DiagnosticState,
 } from "@/src/services/diagnostics";
 
-const expectedMigrations = [
-  "202608140010_trade_016_final_production",
-  "202608160001_trade_016_4_owner_workflow",
-] as const;
-const expectedMigration = expectedMigrations.at(-1)!;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const expectedMigration = REQUIRED_DIAGNOSTIC_MIGRATIONS.at(-1)!;
+const noStoreHeaders = {
+  "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate",
+  Expires: "0",
+  Pragma: "no-cache",
+};
 const safe = (
   name: string,
   state: DiagnosticState,
@@ -44,7 +50,7 @@ const failurePayload = (
       nonTrading: true,
       error: check.detail,
     },
-    { status },
+    { status, headers: noStoreHeaders },
   );
 
 export async function GET() {
@@ -91,7 +97,7 @@ export async function GET() {
         db
           .from("schema_migrations")
           .select("version")
-          .in("version", [...expectedMigrations]),
+          .order("version", { ascending: true }),
         db
           .from("system_state")
           .select("risk_state,emergency_stop_active,auto_trader_status,mode")
@@ -118,12 +124,7 @@ export async function GET() {
         Boolean(process.env.ALPACA_API_KEY && process.env.ALPACA_API_SECRET),
       runtimeHealthy =
         workerHealth.hostedRuntime || vercelRuntime === "HOSTED_PRODUCTION";
-    const appliedMigrations = new Set(
-      (migration.data ?? []).map((item) => item.version),
-    );
-    const missingMigrations = expectedMigrations.filter(
-      (version) => !appliedMigrations.has(version),
-    );
+    const missingMigrations = findMissingDiagnosticMigrations(migration.data);
     const databaseErrors = [
       queryError("Railway Trading Worker", worker.error),
       queryError("Railway Notification Worker", notification.error),
@@ -264,27 +265,30 @@ export async function GET() {
     const failures = checks.filter((check) =>
       ["OFFLINE", "DEGRADED", "NOT CONFIGURED"].includes(check.state),
     );
-    return NextResponse.json({
-      summary: failures.some((item) => item.state === "OFFLINE")
-        ? "NOT READY"
-        : failures.length
-          ? "DEGRADED"
-          : "READY",
-      checks,
-      paperReady: paperHealthy && workerHealth.online,
-      liveReady: live.credentialsConfigured && live.endpointValid,
-      liveLocked: !live.executionEnabled,
-      schemaVersion: missingMigrations.length ? null : expectedMigration,
-      expectedMigration,
-      generatedAt,
-      nonTrading: true,
-      actionsPerformed: [
-        "DATABASE_READ",
-        "HEARTBEAT_READ",
-        "CONFIGURATION_CHECK",
-      ],
-      secrets: "REDACTED",
-    });
+    return NextResponse.json(
+      {
+        summary: failures.some((item) => item.state === "OFFLINE")
+          ? "NOT READY"
+          : failures.length
+            ? "DEGRADED"
+            : "READY",
+        checks,
+        paperReady: paperHealthy && workerHealth.online,
+        liveReady: live.credentialsConfigured && live.endpointValid,
+        liveLocked: !live.executionEnabled,
+        schemaVersion: missingMigrations.length ? null : expectedMigration,
+        expectedMigration,
+        generatedAt,
+        nonTrading: true,
+        actionsPerformed: [
+          "DATABASE_READ",
+          "HEARTBEAT_READ",
+          "CONFIGURATION_CHECK",
+        ],
+        secrets: "REDACTED",
+      },
+      { headers: noStoreHeaders },
+    );
   } catch {
     return failurePayload(
       safe(

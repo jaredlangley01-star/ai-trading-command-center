@@ -6,9 +6,10 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("Diagnostics requires TRADE-016 and TRADE-016.4 migration records", async () => {
   const route = await read("app/api/diagnostics/route.ts");
-  assert.match(route, /202608140010_trade_016_final_production/);
-  assert.match(route, /202608160001_trade_016_4_owner_workflow/);
-  assert.match(route, /\.in\("version", \[\.\.\.expectedMigrations\]\)/);
+  const diagnostics = await read("src/services/diagnostics.ts");
+  assert.match(diagnostics, /202608140010_trade_016_final_production/);
+  assert.match(diagnostics, /202608160001_trade_016_4_owner_workflow/);
+  assert.match(route, /\.select\("version"\)/);
   assert.match(route, /missingMigrations/);
   assert.match(route, /Required schema migrations recorded through/);
 });

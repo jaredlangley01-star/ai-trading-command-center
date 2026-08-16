@@ -22,6 +22,25 @@ export type WorkerHeartbeat = {
 
 export const DIAGNOSTIC_HEARTBEAT_MAX_AGE_MS = 120_000;
 
+export const REQUIRED_DIAGNOSTIC_MIGRATIONS = [
+  "202608140010_trade_016_final_production",
+  "202608160001_trade_016_4_owner_workflow",
+] as const;
+
+export function findMissingDiagnosticMigrations(
+  rows: ReadonlyArray<{ version: unknown }> | null | undefined,
+) {
+  const returnedVersions = new Set(
+    (rows ?? []).flatMap(({ version }) =>
+      typeof version === "string" ? [version] : [],
+    ),
+  );
+
+  return REQUIRED_DIAGNOSTIC_MIGRATIONS.filter(
+    (version) => !returnedVersions.has(version),
+  );
+}
+
 export function heartbeatIsFresh(
   heartbeat: WorkerHeartbeat | null | undefined,
   now = Date.now(),

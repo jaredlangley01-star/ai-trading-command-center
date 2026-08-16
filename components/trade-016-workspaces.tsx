@@ -37,11 +37,15 @@ export function DiagnosticsWorkspace() {
     setRunning(true);
     setFailure(null);
     try {
-      const response = await fetch("/api/diagnostics", {
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: { accept: "application/json" },
-      });
+      const requestId = new Date().toISOString();
+      const response = await fetch(
+        `/api/diagnostics?run=${encodeURIComponent(requestId)}`,
+        {
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { accept: "application/json" },
+        },
+      );
       const payload = (await response
         .json()
         .catch(() => null)) as DiagnosticPayload | null;
