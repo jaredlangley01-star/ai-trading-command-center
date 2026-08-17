@@ -19,6 +19,7 @@ import { validateRecommendationForApproval } from "@/src/services/recommendation
 import { ProductionRiskManager } from "@/src/services/risk-manager";
 import { CombinedOpportunityEngine } from "@/src/services/strategies/combined-opportunity-engine";
 import { TradePermissionService } from "@/src/services/trade-permission";
+import type { BrokerService } from "@/src/services/contracts";
 
 const assets: Record<string, Asset> = Object.fromEntries(
   ["AAPL", "NVDA", "MSFT", "AMZN"].map((symbol) => [
@@ -389,9 +390,86 @@ async function approve(
       emergencyStopActive: state.emergencyStopActive,
       systemLocked: state.riskState === "LOCKED",
     };
+    const clientOrderId = `big-money:${id}:${rec.version}`;
+    const bigMoneyQueueBroker = {
+      submitPaperOrder: async (order: {
+        symbol: string;
+        direction: string;
+        quantity: number;
+        type: string;
+        limitPrice?: number;
+        stopLoss?: number;
+        clientOrderId: string;
+      }) => {
+        const { data: platformOrder, error: orderError } = await supabase
+          .from("orders")
+          .insert({
+            user_id: userId,
+            recommendation_id: id,
+            symbol: order.symbol,
+            direction: order.direction,
+            order_type: order.type,
+            quantity: order.quantity,
+            limit_price: order.limitPrice,
+            status: "DRAFT",
+            mode: "PAPER",
+            source: "BIG_MONEY",
+            classification: "BIG",
+            client_order_id: order.clientOrderId,
+          })
+          .select("id")
+          .single();
+        if (orderError || !platformOrder) throw new Error("QUEUE_ORDER_FAILED");
+        const { data: queued, error: queueError } = await supabase
+          .from("paper_execution_requests")
+          .insert({
+            user_id: userId,
+            order_id: platformOrder.id,
+            client_order_id: order.clientOrderId,
+            symbol: order.symbol,
+            direction: order.direction,
+            quantity: order.quantity,
+            order_type: order.type,
+            limit_price: order.limitPrice,
+            stop_loss: order.stopLoss,
+            source: "BIG_MONEY",
+            status: "QUEUED",
+          })
+          .select("id,status")
+          .single();
+        if (queueError || !queued) throw new Error("QUEUE_REQUEST_FAILED");
+        await supabase
+          .from("orders")
+          .update({ status: "QUEUED", updated_at: new Date().toISOString() })
+          .eq("id", platformOrder.id);
+        return {
+          brokerOrderId: queued.id,
+          status: "QUEUED" as const,
+          message: "Big Money PAPER order queued for Railway execution.",
+          mode: "PAPER" as const,
+        };
+      },
+    };
+    const queuedRiskManager = new ProductionRiskManager(
+      settings,
+      async (context, decision) => {
+        await supabase.from("risk_decisions").insert({
+          user_id: userId,
+          client_order_id: clientOrderId,
+          symbol: rec.symbol,
+          source: "BIG_MONEY",
+          decision: decision.status,
+          reason: decision.reason,
+          requested_capital: decision.requestedCapital,
+          approved_capital: decision.approvedCapital,
+          calculated_loss: decision.calculatedLoss,
+          context,
+        });
+      },
+    );
     const result = await new PaperOrderService(
-      selected.broker,
-      new ProductionRiskManager(settings),
+      bigMoneyQueueBroker as unknown as BrokerService,
+      queuedRiskManager,
       new TradePermissionService(state, settings),
     ).submit(
       {
@@ -404,7 +482,7 @@ async function approve(
         source: "BIG_MONEY",
         mode: "PAPER",
         confirmed: true,
-        clientOrderId: `big-money:${id}:${rec.version}`,
+        clientOrderId,
       },
       riskContext,
     );
@@ -418,18 +496,6 @@ async function approve(
           updated_at: timestamp,
         })
         .eq("id", id),
-      supabase.from("orders").insert({
-        user_id: userId,
-        recommendation_id: id,
-        symbol: rec.symbol,
-        direction: rec.direction,
-        order_type: "LIMIT",
-        quantity: Math.max(1, Math.floor(capital / quote.last)),
-        status: result.status,
-        mode: "PAPER",
-        source: "BIG_MONEY",
-        client_order_id: `big-money:${id}:${rec.version}`,
-      }),
       supabase.from("audit_events").insert({
         user_id: userId,
         action: "RECOMMENDATION_APPROVED",

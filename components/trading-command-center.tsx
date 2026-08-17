@@ -30,6 +30,11 @@ import {
 } from "./trade-016-workspaces";
 import { GuidedTutorial, TutorialSettings } from "./guided-tutorial";
 import {
+  OrderActivityCard,
+  OrdersWorkspace,
+  PendingOrdersHeader,
+} from "./orders-workspace";
+import {
   ActiveTradeHeader,
   PortfolioWorkspace,
   StrategyPerformanceWorkspace,
@@ -66,6 +71,7 @@ const nav = [
   "Charts",
   "Backtesting",
   "Paper Trading",
+  "Orders",
   "Trade Journal",
   "Risk Manager",
   "Notifications",
@@ -194,6 +200,8 @@ export function TradingCommandCenter({
     [toast, setToast] = useState(""),
     [riskOption, setRiskOption] = useState("Recommended"),
     [investment, setInvestment] = useState(5000),
+    [ordersFilter, setOrdersFilter] = useState("ALL"),
+    [selectedOrderId, setSelectedOrderId] = useState<string | null>(null),
     [selectedPosition, setSelectedPosition] = useState(emptyPosition),
     [, setAudit] = useState<AuditEvent[]>([]);
   const [liveMarket, setLiveMarket] = useState({
@@ -214,11 +222,18 @@ export function TradingCommandCenter({
     activity: [],
   });
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get(
-      "section",
-    );
+    const params = new URLSearchParams(window.location.search),
+      requested = params.get("section"),
+      requestedOrder = params.get("order"),
+      requestedFilter = params.get("orderFilter");
     if (requested && nav.includes(requested))
-      queueMicrotask(() => setSection(requested));
+      queueMicrotask(() => {
+        setSection(requested);
+        if (requested === "Orders") {
+          setSelectedOrderId(requestedOrder);
+          if (requestedFilter) setOrdersFilter(requestedFilter.toUpperCase());
+        }
+      });
   }, []);
   useEffect(() => {
     let active = true;
@@ -481,6 +496,13 @@ export function TradingCommandCenter({
           </div>
           <div className="top-tools">
             <ActiveTradeHeader positions={hostedPortfolio.positions} />
+            <PendingOrdersHeader
+              navigate={() => {
+                setOrdersFilter("PENDING");
+                setSelectedOrderId(null);
+                setSection("Orders");
+              }}
+            />
             <span className="market-open">
               <i /> {liveMarket.source} ·{" "}
               {liveMarket.status === "MARKET_DATA_ACTIVE"
@@ -569,6 +591,11 @@ export function TradingCommandCenter({
               portfolio={hostedPortfolio}
               viewPortfolio={() => setSection("Portfolio")}
               viewBigMoney={() => setSection("Big Money")}
+              viewOrders={() => {
+                setOrdersFilter("ALL");
+                setSelectedOrderId(null);
+                setSection("Orders");
+              }}
             />
           ) : section === "Auto Trader" ? (
             <AutoTraderWorkspace emergencyLocked={locked} />
@@ -634,7 +661,20 @@ export function TradingCommandCenter({
               <TutorialSettings />
             </div>
           ) : section === "Paper Trading" ? (
-            <BrokerWorkspace broker={displayedBroker} locked={locked} />
+            <BrokerWorkspace
+              broker={displayedBroker}
+              locked={locked}
+              viewOrder={(id) => {
+                setSelectedOrderId(id);
+                setSection("Orders");
+              }}
+            />
+          ) : section === "Orders" ? (
+            <OrdersWorkspace
+              initialFilter={ordersFilter}
+              initialId={selectedOrderId}
+              navigate={setSection}
+            />
           ) : section === "Trade Journal" ? (
             <TradeJournalWorkspace />
           ) : (
@@ -1273,6 +1313,15 @@ function AutoTraderWorkspace({
     [systemStatus, setSystemStatus] = useState("PAUSED"),
     [workerAcknowledged, setWorkerAcknowledged] = useState(false),
     [activePositions, setActivePositions] = useState(0),
+    [activity, setActivity] = useState({
+      current: "PAUSED",
+      lastScan: null as string | null,
+      candidatesEvaluated: 0,
+      candidatesRejected: 0,
+      lastRejectionReason: null as string | null,
+      lastOrderQueued: null as string | null,
+      lastOrderFilled: null as string | null,
+    }),
     [decisions, setDecisions] = useState<StoredAutomatedDecision[]>([]),
     [symbol, setSymbol] = useState("AAPL"),
     [busy, setBusy] = useState(false),
@@ -1286,6 +1335,7 @@ function AutoTraderWorkspace({
       systemStatus: string;
       workerAcknowledged: boolean;
       activePositions: number;
+      activity: typeof activity;
     };
     setConfig(data.config);
     setDaily(data.daily);
@@ -1293,6 +1343,7 @@ function AutoTraderWorkspace({
     setSystemStatus(data.systemStatus);
     setWorkerAcknowledged(data.workerAcknowledged);
     setActivePositions(data.activePositions);
+    setActivity(data.activity);
   };
   useEffect(() => {
     void fetch("/api/auto-trader")
@@ -1305,6 +1356,7 @@ function AutoTraderWorkspace({
           systemStatus: string;
           workerAcknowledged: boolean;
           activePositions: number;
+          activity: typeof activity;
         }) => {
           setConfig(data.config);
           setDaily(data.daily);
@@ -1312,6 +1364,7 @@ function AutoTraderWorkspace({
           setSystemStatus(data.systemStatus);
           setWorkerAcknowledged(data.workerAcknowledged);
           setActivePositions(data.activePositions);
+          setActivity(data.activity);
         },
       )
       .catch(() => setMessage("Auto Trader state is unavailable."));
@@ -1394,6 +1447,42 @@ function AutoTraderWorkspace({
             </span>
           </div>
         )}
+        <section className="auto-activity-panel">
+          <div>
+            <span>CURRENT ACTIVITY</span>
+            <b>{activity.current}</b>
+            <small>
+              Last scan ·{" "}
+              {activity.lastScan
+                ? new Date(activity.lastScan).toLocaleString()
+                : "Not acknowledged"}
+            </small>
+          </div>
+          <div>
+            <span>CANDIDATES EVALUATED</span>
+            <b>{activity.candidatesEvaluated}</b>
+            <small>{activity.candidatesRejected} rejected</small>
+          </div>
+          <div>
+            <span>LAST REJECTION</span>
+            <b>{activity.lastRejectionReason ?? "NONE RECORDED"}</b>
+            <small>Safe persisted decision reason</small>
+          </div>
+          <div>
+            <span>LAST ORDER QUEUED</span>
+            <b>
+              {activity.lastOrderQueued
+                ? new Date(activity.lastOrderQueued).toLocaleString()
+                : "NONE"}
+            </b>
+            <small>
+              Last fill ·{" "}
+              {activity.lastOrderFilled
+                ? new Date(activity.lastOrderFilled).toLocaleString()
+                : "NONE"}
+            </small>
+          </div>
+        </section>
         <div className="auto-metrics">
           <FinancialMetric
             label="ALLOCATED CAPITAL"
@@ -2402,6 +2491,7 @@ function Dashboard(p: {
   portfolio: HostedPortfolio;
   viewPortfolio: () => void;
   viewBigMoney: () => void;
+  viewOrders: () => void;
 }) {
   const liveInvested = p.livePositions.reduce(
     (sum, position) =>
@@ -2515,6 +2605,7 @@ function Dashboard(p: {
             activity={p.portfolio.activity}
           />
           <BigMoneyDashboardLink open={p.viewBigMoney} />
+          <OrderActivityCard navigate={p.viewOrders} />
           <PositionTable
             rows={p.livePositions}
             open={p.openPosition}
@@ -3149,9 +3240,11 @@ function SystemHealth({
 function BrokerWorkspace({
   broker,
   locked,
+  viewOrder,
 }: {
   broker: BrokerDashboardData;
   locked: boolean;
+  viewOrder: (id: string) => void;
 }) {
   const [symbol, setSymbol] = useState("AAPL"),
     [direction, setDirection] = useState<"BUY" | "SELL">("BUY"),
@@ -3425,6 +3518,14 @@ function BrokerWorkspace({
           <b>STATUS: {status}</b>
           {message && <span>{message}</span>}
         </div>
+        {trackingClientOrderId && (
+          <button
+            className="button ticket-submit"
+            onClick={() => viewOrder(trackingClientOrderId)}
+          >
+            VIEW ORDER
+          </button>
+        )}
         <div className="quote-session-state">
           <b>
             {quoteHealth?.session === "REGULAR"

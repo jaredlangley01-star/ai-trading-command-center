@@ -16,12 +16,7 @@ const labels: Record<NotificationType, string> = Object.fromEntries(
 ) as Record<NotificationType, string>;
 const visibleTypes = notificationTypes.filter(
   (type) =>
-    ![
-      "TEST",
-      "ORDER_SUBMITTED",
-      "ORDER_REJECTED",
-      "PROTECTIVE_EXIT_FAILURE",
-    ].includes(type),
+    !["TEST", "ORDER_SUBMITTED", "PROTECTIVE_EXIT_FAILURE"].includes(type),
 );
 function applicationServerKey(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);

@@ -82,7 +82,15 @@ export async function GET() {
       systemStatus: "PAUSED",
     });
   const today = new Date().toISOString().slice(0, 10);
-  const [config, daily, decisions, system, heartbeat] = await Promise.all([
+  const [
+    config,
+    daily,
+    decisions,
+    system,
+    heartbeat,
+    candidates,
+    recentOrders,
+  ] = await Promise.all([
     supabase
       .from("auto_trader_config")
       .select("*")
@@ -112,6 +120,19 @@ export async function GET() {
       .order("last_seen_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("autonomous_candidate_evaluations")
+      .select("decision,reasons,created_at,symbol")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(100),
+    supabase
+      .from("paper_execution_requests")
+      .select("status,queued_at,filled_at,symbol,error_message")
+      .eq("user_id", user.id)
+      .eq("source", "AUTO_TRADER")
+      .order("queued_at", { ascending: false })
+      .limit(20),
   ]);
   const authoritativeStatus = system.data?.emergency_stop_active
     ? "LOCKED"
@@ -129,6 +150,37 @@ export async function GET() {
       (authoritativeStatus === "ACTIVE" ? "SCHEDULED" : "PAUSED"),
     workerLastSeen: heartbeat.data?.last_seen_at ?? null,
     activePositions: Number(heartbeat.data?.metadata?.positionCount ?? 0),
+    activity: {
+      current:
+        authoritativeStatus !== "ACTIVE"
+          ? "PAUSED"
+          : recentOrders.data?.some((order) =>
+                ["QUEUED", "SUBMITTING"].includes(order.status),
+              )
+            ? "ORDER QUEUED"
+            : recentOrders.data?.some((order) =>
+                  ["SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"].includes(
+                    order.status,
+                  ),
+                )
+              ? "WAITING FOR FILL"
+              : Number(heartbeat.data?.metadata?.positionCount ?? 0) > 0
+                ? "POSITION ACTIVE"
+                : "SCANNING / WAITING FOR SETUP",
+      lastScan: heartbeat.data?.last_seen_at ?? null,
+      candidatesEvaluated: candidates.data?.length ?? 0,
+      candidatesRejected:
+        candidates.data?.filter(
+          (candidate) => candidate.decision === "REJECTED",
+        ).length ?? 0,
+      lastRejectionReason:
+        candidates.data?.find((candidate) => candidate.decision === "REJECTED")
+          ?.reasons?.[0] ?? null,
+      lastOrderQueued: recentOrders.data?.[0]?.queued_at ?? null,
+      lastOrderFilled:
+        recentOrders.data?.find((order) => order.status === "FILLED")
+          ?.filled_at ?? null,
+    },
   });
 }
 

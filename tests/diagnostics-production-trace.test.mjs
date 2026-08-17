@@ -12,6 +12,7 @@ const trade0164 = "202608160001_trade_016_4_owner_workflow";
 const repair = "202608160002_trade_016_migration_status_repair";
 const trade0165 = "202608160003_trade_016_5_paper_execution_queue";
 const trade0166 = "202608170001_trade_016_6_session_freshness";
+const trade0167 = "202608170002_trade_016_7_order_monitor";
 
 test("A: required migration rows returned means no missing migrations", () => {
   assert.deepEqual(
@@ -21,6 +22,7 @@ test("A: required migration rows returned means no missing migrations", () => {
       { version: repair },
       { version: trade0165 },
       { version: trade0166 },
+      { version: trade0167 },
     ]),
     [],
   );
@@ -31,12 +33,14 @@ test("B and D: missing or empty successful results remain degraded", () => {
     trade0164,
     trade0165,
     trade0166,
+    trade0167,
   ]);
   assert.deepEqual(findMissingDiagnosticMigrations([]), [
     trade016,
     trade0164,
     trade0165,
     trade0166,
+    trade0167,
   ]);
 });
 
@@ -83,7 +87,7 @@ test("F: exact versions are compared without normalization", () => {
       { version: `${trade016} ` },
       { version: trade0164.toUpperCase() },
     ]),
-    [trade016, trade0164, trade0165, trade0166],
+    [trade016, trade0164, trade0165, trade0166, trade0167],
   );
 });
 

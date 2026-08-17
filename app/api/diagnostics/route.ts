@@ -85,7 +85,7 @@ export async function GET() {
       );
     const migrationAdmin = createSupabaseAdminClient();
     const migrationDb = migrationAdmin ?? db;
-    const [worker, notification, migration, risk, positions] =
+    const [worker, notification, migration, risk, positions, executionQueue] =
       await Promise.all([
         db
           .from("trading_worker_heartbeats")
@@ -115,6 +115,19 @@ export async function GET() {
           .select("id", { count: "exact", head: true })
           .eq("user_id", user.id)
           .in("status", ["OPEN", "EXIT_PENDING"]),
+        db
+          .from("paper_execution_requests")
+          .select("status,queued_at,worker_received_at,completed_at")
+          .eq("user_id", user.id)
+          .in("status", [
+            "QUEUED",
+            "SUBMITTING",
+            "SUBMITTED",
+            "ACCEPTED",
+            "PARTIALLY_FILLED",
+          ])
+          .order("queued_at", { ascending: true })
+          .limit(250),
       ]);
     const paper = getEnvironmentReadiness("PAPER"),
       live = getEnvironmentReadiness("LIVE"),
@@ -131,6 +144,13 @@ export async function GET() {
         Boolean(process.env.ALPACA_API_KEY && process.env.ALPACA_API_SECRET),
       runtimeHealthy =
         workerHealth.hostedRuntime || vercelRuntime === "HOSTED_PRODUCTION";
+    const pendingExecutions = executionQueue.data ?? [];
+    const unclaimedDelayed = pendingExecutions.filter(
+      (request) =>
+        request.status === "QUEUED" &&
+        !request.worker_received_at &&
+        Date.now() - Date.parse(request.queued_at) > 120_000,
+    );
     const migrationVersions = (migration.data ?? []).flatMap(({ version }) =>
       typeof version === "string" ? [version] : [],
     );
@@ -271,6 +291,16 @@ export async function GET() {
               workerHealth.online ? (worker.data?.last_seen_at ?? null) : null,
             ),
           ]),
+      safe(
+        "Execution Queue",
+        executionQueue.error || unclaimedDelayed.length
+          ? "DEGRADED"
+          : "HEALTHY",
+        executionQueue.error
+          ? "Owner-scoped execution queue metrics are unavailable."
+          : `${pendingExecutions.length} pending request(s); ${unclaimedDelayed.length} delayed before worker claim. Accepted limit orders waiting for price do not degrade health.`,
+        workerHealth.online ? (worker.data?.last_seen_at ?? null) : null,
+      ),
       ...(failedNames.has("Database migrations")
         ? []
         : [

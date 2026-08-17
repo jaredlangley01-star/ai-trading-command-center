@@ -35,5 +35,7 @@ test("Railway starts only the persistent hosted worker", () => {
 test("worker performs no automatic deployment entry order", () => {
   assert.match(worker, /submitProtectivePaperExit/);
   assert.match(worker, /STOP_LOSS/);
-  assert.doesNotMatch(worker, /source:\s*["']AUTO_TRADER["']/);
+  assert.match(worker, /system\?\.auto_trader_status !== "ACTIVE"/);
+  assert.match(worker, /autonomous_execution_claims/);
+  assert.match(worker, /paper_execution_requests/);
 });

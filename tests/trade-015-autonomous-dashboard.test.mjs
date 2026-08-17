@@ -187,7 +187,7 @@ test("notifications integrate without becoming an execution dependency", async (
     new URL("../hosted-worker/index.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(worker, /Autonomous PAPER Entry/);
+  assert.match(worker, /Autonomous PAPER Order Queued/);
   assert.match(worker, /Autonomous Entry Blocked/);
   assert.doesNotMatch(
     worker.match(/async function enqueueNotification[\s\S]*?\n}/)?.[0] ?? "",

@@ -141,6 +141,8 @@ export async function POST(request: Request) {
         mode: "PAPER",
         client_order_id: body.clientOrderId,
         source: "MANUAL",
+        classification: "MANUAL",
+        limit_price: body.type === "LIMIT" ? body.limitPrice : null,
       })
       .select("id")
       .single();

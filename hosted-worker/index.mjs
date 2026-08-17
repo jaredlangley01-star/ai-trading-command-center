@@ -312,8 +312,7 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
     .eq("symbol", winner.symbol)
     .select("id")
     .single();
-  const broker = createAlpacaPaperBrokerService();
-  if (!broker) return;
+  if (!createAlpacaPaperBrokerService()) return;
   const state = {
     mode: "PAPER",
     autoTraderStatus: "ACTIVE",
@@ -324,11 +323,13 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
     ...defaultRiskSettings,
     ...(riskResult.data?.settings ?? {}),
   };
+  let activeExecutionKey = null;
   const risk = new ProductionRiskManager(
     settings,
     async (context, decision) => {
       await db.from("risk_decisions").insert({
         user_id: ownerId,
+        client_order_id: activeExecutionKey,
         symbol: winner.symbol,
         source: automatedEntrySource,
         decision: decision.status,
@@ -340,17 +341,81 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
       });
     },
   );
+  const autoQueueBroker = {
+    submitPaperOrder: async (order) => {
+      const { data: existing } = await db
+        .from("paper_execution_requests")
+        .select("id,status")
+        .eq("user_id", ownerId)
+        .eq("client_order_id", order.clientOrderId)
+        .maybeSingle();
+      if (existing)
+        return {
+          brokerOrderId: existing.id,
+          status: existing.status,
+          message: "Existing durable Auto Trader PAPER request returned.",
+          mode: "PAPER",
+        };
+      const { data: platformOrder, error: orderError } = await db
+        .from("orders")
+        .insert({
+          user_id: ownerId,
+          symbol: order.symbol,
+          direction: order.direction,
+          order_type: order.type,
+          quantity: order.quantity,
+          limit_price: order.limitPrice,
+          status: "DRAFT",
+          mode: "PAPER",
+          source: "AUTO_TRADER",
+          classification: "SMALL",
+          client_order_id: order.clientOrderId,
+        })
+        .select("id")
+        .single();
+      if (orderError || !platformOrder) throw new Error("QUEUE_ORDER_FAILED");
+      const { data: request, error: requestError } = await db
+        .from("paper_execution_requests")
+        .insert({
+          user_id: ownerId,
+          order_id: platformOrder.id,
+          client_order_id: order.clientOrderId,
+          symbol: order.symbol,
+          direction: order.direction,
+          quantity: order.quantity,
+          order_type: order.type,
+          limit_price: order.limitPrice,
+          stop_loss: order.stopLoss,
+          source: "AUTO_TRADER",
+          status: "QUEUED",
+        })
+        .select("id,status")
+        .single();
+      if (requestError || !request) throw new Error("QUEUE_REQUEST_FAILED");
+      await db
+        .from("orders")
+        .update({ status: "QUEUED", updated_at: new Date().toISOString() })
+        .eq("id", platformOrder.id);
+      return {
+        brokerOrderId: request.id,
+        status: "QUEUED",
+        message: "Auto Trader PAPER order queued for Railway execution.",
+        mode: "PAPER",
+      };
+    },
+  };
   const engine = new AutoTraderEngine(
     new CombinedOpportunityEngine(
       new MarketDataEngine(createPaperMarketData()),
     ),
     risk,
     new TradePermissionService(state, settings),
-    broker,
+    autoQueueBroker,
     "ALPACA_PAPER",
     config,
     {
       claimOpportunity: async (key) => {
+        activeExecutionKey = key;
         const { error } = await db.from("autonomous_execution_claims").insert({
           user_id: ownerId,
           execution_key: key,
@@ -420,11 +485,11 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
           .eq("user_id", ownerId)
           .eq("execution_key", result.opportunityKey);
         await enqueueNotification(ownerId, {
-          type: result.brokerOrderId ? "TRADE_OPENED" : "RISK_MANAGER_WARNING",
+          type: result.brokerOrderId ? "ORDER_QUEUED" : "RISK_MANAGER_WARNING",
           category: result.brokerOrderId ? "TRADE" : "RISK",
           severity: result.brokerOrderId ? "INFO" : "WARNING",
           title: result.brokerOrderId
-            ? `${result.symbol} Autonomous PAPER Entry`
+            ? `${result.symbol} Autonomous PAPER Order Queued`
             : `${result.symbol} Autonomous Entry Blocked`,
           body: `${result.status}: ${result.reason}.`,
           payload: {
@@ -583,11 +648,12 @@ async function synchronizeOwnerPortfolio(
     { data: legacyPositions },
     { data: platformOrders },
     { data: automatedDecisions },
+    { data: executionRequests },
   ] = await Promise.all([
     db
       .from("paper_positions")
       .select(
-        "broker_position_id,broker_order_id,symbol,stop_loss,take_profit,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status",
+        "broker_position_id,broker_order_id,entry_order_id,symbol,stop_loss,take_profit,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status",
       )
       .eq("user_id", ownerId),
     db
@@ -608,6 +674,11 @@ async function synchronizeOwnerPortfolio(
       .eq("user_id", ownerId)
       .order("created_at", { ascending: false })
       .limit(200),
+    db
+      .from("paper_execution_requests")
+      .select("id,order_id,client_order_id,status")
+      .eq("user_id", ownerId)
+      .limit(250),
   ]);
   const legacyMap = new Map(
     (legacyPositions ?? []).map((row) => [
@@ -624,6 +695,12 @@ async function synchronizeOwnerPortfolio(
   const automatedDecisionMap = new Map(
     (automatedDecisions ?? []).map((decision) => [decision.id, decision]),
   );
+  const executionRequestMap = new Map(
+    (executionRequests ?? []).map((request) => [
+      request.client_order_id,
+      request,
+    ]),
+  );
   const orderMap = new Map();
   for (const brokerOrder of orders ?? []) {
     const platformOrder = platformOrderByClientId.get(
@@ -635,10 +712,24 @@ async function synchronizeOwnerPortfolio(
     if (platformOrder) {
       const status = normalizePaperExecutionStatus(brokerOrder.status);
       const updatedAt = new Date().toISOString();
+      const priorRequest = executionRequestMap.get(
+        String(brokerOrder.client_order_id ?? ""),
+      );
+      const filledQuantity = number(brokerOrder.filled_qty);
+      const averageFillPrice = number(brokerOrder.filled_avg_price) || null;
+      const acknowledgedAt =
+        brokerOrder.accepted_at ?? brokerOrder.submitted_at ?? updatedAt;
+      const filledAt = status === "FILLED" ? updatedAt : null;
       await Promise.all([
         db
           .from("orders")
-          .update({ status, broker_order_id: String(brokerOrder.id) })
+          .update({
+            status,
+            broker_order_id: String(brokerOrder.id),
+            filled_quantity: filledQuantity,
+            average_fill_price: averageFillPrice,
+            updated_at: updatedAt,
+          })
           .eq("id", platformOrder.id)
           .eq("user_id", ownerId),
         db
@@ -646,6 +737,10 @@ async function synchronizeOwnerPortfolio(
           .update({
             status,
             broker_order_id: String(brokerOrder.id),
+            broker_acknowledged_at: acknowledgedAt,
+            filled_at: filledAt,
+            filled_quantity: filledQuantity,
+            average_fill_price: averageFillPrice,
             completed_at: ["FILLED", "REJECTED", "CANCELED"].includes(status)
               ? updatedAt
               : null,
@@ -654,6 +749,29 @@ async function synchronizeOwnerPortfolio(
           .eq("user_id", ownerId)
           .eq("client_order_id", String(brokerOrder.client_order_id)),
       ]);
+      if (priorRequest?.status !== status) {
+        const eventType =
+          status === "FILLED"
+            ? "ORDER_FILLED"
+            : status === "REJECTED"
+              ? "ORDER_REJECTED"
+              : status === "CANCELED"
+                ? "ORDER_CANCELED"
+                : status === "ACCEPTED"
+                  ? "ORDER_ACCEPTED"
+                  : null;
+        if (eventType)
+          await enqueueNotification(ownerId, {
+            type: eventType,
+            category: "TRADE",
+            severity: status === "REJECTED" ? "WARNING" : "INFO",
+            title: `${symbol} PAPER Order ${status}`,
+            body: `${platformOrder.source} PAPER order is ${status.toLowerCase()}.`,
+            payload: { symbol, status, orderId: platformOrder.id },
+            deepLink: `/?section=Orders&order=${platformOrder.id}`,
+            dedupeKey: `order:${platformOrder.id}:${status}`,
+          });
+      }
       if (status === "FILLED")
         await recordFilledPaperExecution(
           ownerId,
@@ -688,43 +806,54 @@ async function synchronizeOwnerPortfolio(
               ).toUpperCase() === "MANUAL"
             ? "MANUAL"
             : "STANDARD");
-    await db.from("paper_positions").upsert(
-      {
-        user_id: ownerId,
-        broker_position_id: id,
-        symbol: String(position.symbol).toUpperCase(),
-        side: String(position.side) === "short" ? "SHORT" : "LONG",
-        quantity: Math.abs(number(position.qty)),
-        entry_price: number(position.avg_entry_price),
-        current_price: number(position.current_price),
-        market_value: Math.abs(number(position.market_value)),
-        unrealized_pl: number(position.unrealized_pl),
-        unrealized_pl_pct: number(position.unrealized_plpc) * 100,
-        stop_loss: control?.stop_loss ?? null,
-        take_profit: control?.take_profit ?? null,
-        strategy_name:
-          control?.strategy_name ??
-          (automatedStrategies.length
-            ? String(automatedStrategies[0])
-            : tradeOrigin === "BIG_MONEY"
-              ? "Big Money"
-              : tradeOrigin === "AUTO_TRADER"
-                ? "Combined Opportunity Engine"
-                : "Manual / External PAPER"),
-        trade_origin: tradeOrigin,
-        broker_order_id:
-          control?.broker_order_id ?? platformOrder?.broker_order_id ?? null,
-        risk_decision_id:
-          control?.risk_decision_id ??
-          automatedDecision?.risk_decision_id ??
-          null,
-        status: "OPEN",
-        opened_at:
-          control?.status === "CLOSED" ? asOf : (control?.opened_at ?? asOf),
-        last_synced_at: asOf,
-      },
-      { onConflict: "user_id,broker_position_id" },
-    );
+    const { data: synchronizedPosition } = await db
+      .from("paper_positions")
+      .upsert(
+        {
+          user_id: ownerId,
+          broker_position_id: id,
+          symbol: String(position.symbol).toUpperCase(),
+          side: String(position.side) === "short" ? "SHORT" : "LONG",
+          quantity: Math.abs(number(position.qty)),
+          entry_price: number(position.avg_entry_price),
+          current_price: number(position.current_price),
+          market_value: Math.abs(number(position.market_value)),
+          unrealized_pl: number(position.unrealized_pl),
+          unrealized_pl_pct: number(position.unrealized_plpc) * 100,
+          stop_loss: control?.stop_loss ?? null,
+          take_profit: control?.take_profit ?? null,
+          strategy_name:
+            control?.strategy_name ??
+            (automatedStrategies.length
+              ? String(automatedStrategies[0])
+              : tradeOrigin === "BIG_MONEY"
+                ? "Big Money"
+                : tradeOrigin === "AUTO_TRADER"
+                  ? "Combined Opportunity Engine"
+                  : "Manual / External PAPER"),
+          trade_origin: tradeOrigin,
+          broker_order_id:
+            control?.broker_order_id ?? platformOrder?.broker_order_id ?? null,
+          entry_order_id: platformOrder?.id ?? control?.entry_order_id ?? null,
+          risk_decision_id:
+            control?.risk_decision_id ??
+            automatedDecision?.risk_decision_id ??
+            null,
+          status: "OPEN",
+          opened_at:
+            control?.status === "CLOSED" ? asOf : (control?.opened_at ?? asOf),
+          last_synced_at: asOf,
+        },
+        { onConflict: "user_id,broker_position_id" },
+      )
+      .select("id")
+      .single();
+    if (platformOrder && synchronizedPosition)
+      await db
+        .from("paper_execution_requests")
+        .update({ position_id: synchronizedPosition.id, updated_at: asOf })
+        .eq("user_id", ownerId)
+        .eq("order_id", platformOrder.id);
     const price = number(position.current_price);
     const isLong = String(position.side) !== "short";
     const stopTriggered =
@@ -787,44 +916,59 @@ async function synchronizeOwnerPortfolio(
             : tradeOrigin === "AUTO_TRADER"
               ? "SMALL"
               : "STANDARD";
-        await db.from("completed_paper_trades").upsert(
-          {
-            user_id: ownerId,
-            lifecycle_key: `${prior.broker_position_id}:${String(closedPosition.opened_at ?? asOf)}`,
-            broker_position_id: prior.broker_position_id,
-            broker_order_id: closedPosition.broker_order_id,
-            symbol: closedPosition.symbol,
-            classification,
-            trade_origin: tradeOrigin,
-            strategy_name: closedPosition.strategy_name,
-            direction,
-            quantity,
-            entry_price: entryPrice,
-            entry_timestamp: closedPosition.opened_at ?? asOf,
-            exit_price: exitPrice,
-            exit_timestamp: String(exitFill.transaction_time ?? asOf),
-            gross_pl: grossPl,
-            costs: 0,
-            net_pl: grossPl,
-            return_pct:
-              entryPrice * quantity > 0
-                ? (grossPl / (entryPrice * quantity)) * 100
-                : 0,
-            stop_loss: closedPosition.stop_loss,
-            take_profit: closedPosition.take_profit,
-            entry_reason: closedPosition.strategy_name,
-            exit_reason: closedPosition.exit_reason ?? "BROKER_POSITION_CLOSED",
-            risk_decision:
-              closedPosition.risk_decision_id == null
-                ? "PAPER_RISK_CONTROLS_APPLIED"
-                : String(closedPosition.risk_decision_id),
-            environment: "PAPER",
-            metadata: {
-              brokerExecutionId: String(exitFill.id ?? exitFill.activity_id),
+        const { data: completedTrade } = await db
+          .from("completed_paper_trades")
+          .upsert(
+            {
+              user_id: ownerId,
+              lifecycle_key: `${prior.broker_position_id}:${String(closedPosition.opened_at ?? asOf)}`,
+              broker_position_id: prior.broker_position_id,
+              broker_order_id: closedPosition.broker_order_id,
+              entry_order_id: closedPosition.entry_order_id,
+              symbol: closedPosition.symbol,
+              classification,
+              trade_origin: tradeOrigin,
+              strategy_name: closedPosition.strategy_name,
+              direction,
+              quantity,
+              entry_price: entryPrice,
+              entry_timestamp: closedPosition.opened_at ?? asOf,
+              exit_price: exitPrice,
+              exit_timestamp: String(exitFill.transaction_time ?? asOf),
+              gross_pl: grossPl,
+              costs: 0,
+              net_pl: grossPl,
+              return_pct:
+                entryPrice * quantity > 0
+                  ? (grossPl / (entryPrice * quantity)) * 100
+                  : 0,
+              stop_loss: closedPosition.stop_loss,
+              take_profit: closedPosition.take_profit,
+              entry_reason: closedPosition.strategy_name,
+              exit_reason:
+                closedPosition.exit_reason ?? "BROKER_POSITION_CLOSED",
+              risk_decision:
+                closedPosition.risk_decision_id == null
+                  ? "PAPER_RISK_CONTROLS_APPLIED"
+                  : String(closedPosition.risk_decision_id),
+              environment: "PAPER",
+              metadata: {
+                brokerExecutionId: String(exitFill.id ?? exitFill.activity_id),
+              },
             },
-          },
-          { onConflict: "user_id,lifecycle_key" },
-        );
+            { onConflict: "user_id,lifecycle_key" },
+          )
+          .select("id")
+          .single();
+        if (completedTrade && closedPosition.entry_order_id)
+          await db
+            .from("paper_execution_requests")
+            .update({
+              completed_trade_id: completedTrade.id,
+              updated_at: asOf,
+            })
+            .eq("user_id", ownerId)
+            .eq("order_id", closedPosition.entry_order_id);
       }
       await db
         .from("paper_positions")
@@ -1574,6 +1718,8 @@ async function processManualExecutionRequests() {
       });
       const status = normalizePaperExecutionStatus(response.status);
       const submittedAt = new Date().toISOString();
+      const filledQuantity = number(response.filled_qty);
+      const averageFillPrice = number(response.filled_avg_price) || null;
       await Promise.all([
         db
           .from("paper_execution_requests")
@@ -1581,6 +1727,11 @@ async function processManualExecutionRequests() {
             status,
             broker_order_id: String(response.id),
             broker_submitted_at: submittedAt,
+            broker_acknowledged_at:
+              response.accepted_at ?? response.submitted_at ?? submittedAt,
+            filled_at: status === "FILLED" ? submittedAt : null,
+            filled_quantity: filledQuantity,
+            average_fill_price: averageFillPrice,
             completed_at: ["FILLED", "REJECTED", "CANCELED"].includes(status)
               ? submittedAt
               : null,
@@ -1589,7 +1740,13 @@ async function processManualExecutionRequests() {
           .eq("id", request.id),
         db
           .from("orders")
-          .update({ status, broker_order_id: String(response.id) })
+          .update({
+            status,
+            broker_order_id: String(response.id),
+            filled_quantity: filledQuantity,
+            average_fill_price: averageFillPrice,
+            updated_at: submittedAt,
+          })
           .eq("id", request.order_id)
           .eq("user_id", request.user_id),
         db.from("audit_events").insert({
@@ -1604,6 +1761,21 @@ async function processManualExecutionRequests() {
           },
         }),
       ]);
+      if (["ACCEPTED", "FILLED", "REJECTED", "CANCELED"].includes(status))
+        await enqueueNotification(request.user_id, {
+          type: `ORDER_${status}`,
+          category: "TRADE",
+          severity: status === "REJECTED" ? "WARNING" : "INFO",
+          title: `${request.symbol} PAPER Order ${status}`,
+          body: `${request.source} PAPER order is ${status.toLowerCase()}.`,
+          payload: {
+            symbol: request.symbol,
+            status,
+            orderId: request.order_id,
+          },
+          deepLink: `/?section=Orders&order=${request.order_id}`,
+          dedupeKey: `order:${request.order_id}:${status}`,
+        });
       if (status === "FILLED")
         await recordFilledPaperExecution(
           request.user_id,
