@@ -23,6 +23,7 @@ import {
   NotificationSettingsWorkspace,
 } from "./notification-workspace";
 import { ProfessionalMarketDashboard } from "./professional-market-dashboard";
+import { AssetDiscoverySelect } from "./asset-discovery-select";
 import {
   AdvancedChartsWorkspace,
   DiagnosticsWorkspace,
@@ -3453,14 +3454,14 @@ function BrokerWorkspace({
           <span className="paper-trade-label">PAPER TRADE — NO REAL MONEY</span>
         </header>
         <div className="ticket-grid">
-          <label>
-            SYMBOL
-            <input
+          <div className="ticket-asset-field">
+            <span>SYMBOL</span>
+            <AssetDiscoverySelect
               value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              maxLength={12}
+              onChange={setSymbol}
+              label="Paper order asset"
             />
-          </label>
+          </div>
           <label>
             DIRECTION
             <select

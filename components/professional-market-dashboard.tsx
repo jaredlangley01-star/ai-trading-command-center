@@ -11,6 +11,11 @@ import {
   type IChartApi,
   type UTCTimestamp,
 } from "lightweight-charts";
+import {
+  AssetDiscoverySelect,
+  AssetGlossary,
+  useAssetDiscovery,
+} from "./asset-discovery-select";
 type Position = {
   symbol: string;
   direction: string;
@@ -81,13 +86,14 @@ export function ProfessionalMarketDashboard({
     [timeframe, setTimeframe] = useState("15Min"),
     [data, setData] = useState<DashboardData | null>(null),
     [filter, setFilter] = useState(""),
-    [marketCategory, setMarketCategory] = useState<"INDICES" | "STOCKS">(
-      "INDICES",
-    ),
+    [marketCategory, setMarketCategory] = useState<
+      "TOP 5" | "MOST ACTIVE" | "TOP GAINERS" | "TOP LOSERS" | "STOCKS" | "ETFS"
+    >("TOP 5"),
     [customizing, setCustomizing] = useState(false),
     [chartDensity, setChartDensity] = useState<"STANDARD" | "TALL">("STANDARD"),
     [now, setNow] = useState<Date | null>(null),
     [drag, setDrag] = useState<string | null>(null);
+  const discovery = useAssetDiscovery();
   const load = useCallback(async () => {
     const response = await fetch(
       `/api/dashboard?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`,
@@ -172,23 +178,12 @@ export function ProfessionalMarketDashboard({
               <option value="SYMBOL">SYMBOL</option>
               <option value="PORTFOLIO">PORTFOLIO EQUITY</option>
             </select>
-            <select
-              aria-label="Current position"
+            <AssetDiscoverySelect
+              compact
               value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-            >
-              {positions.map((position) => (
-                <option key={position.symbol} value={position.symbol}>
-                  {position.symbol} —{" "}
-                  {position.direction === "BUY" ? "LONG" : "SHORT"}
-                </option>
-              ))}
-              {data?.preferences.watchlist
-                .filter((item) => !positions.some((p) => p.symbol === item))
-                .map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-            </select>
+              onChange={setSymbol}
+              label="Current position / chart asset"
+            />
           </div>
           <div className="chart-timeframes" aria-label="Chart timeframe">
             {Object.entries(frames).map(([label, value]) => (
@@ -244,7 +239,16 @@ export function ProfessionalMarketDashboard({
         />
       </header>
       <div className="market-tabs" role="tablist" aria-label="Market category">
-        {(["INDICES", "STOCKS"] as const).map((category) => (
+        {(
+          [
+            "TOP 5",
+            "MOST ACTIVE",
+            "TOP GAINERS",
+            "TOP LOSERS",
+            "STOCKS",
+            "ETFS",
+          ] as const
+        ).map((category) => (
           <button
             key={category}
             role="tab"
@@ -256,14 +260,46 @@ export function ProfessionalMarketDashboard({
           </button>
         ))}
       </div>
+      <div className="market-focus-list" aria-label="Top 5 Market Focus">
+        <b>TOP 5 MARKET FOCUS</b>
+        {discovery?.topFocusAvailable ? (
+          discovery.topFocus.map((asset) => (
+            <button key={asset.symbol} onClick={() => setSymbol(asset.symbol)}>
+              <span>
+                #{asset.rank} {asset.symbol}
+              </span>
+              <small>{asset.reason}</small>
+              <em>
+                {asset.exchange} · {asset.region} · {asset.marketStatus}
+              </em>
+            </button>
+          ))
+        ) : (
+          <p>TOP 5 TEMPORARILY UNAVAILABLE</p>
+        )}
+      </div>
       <div className="market-grid">
         {(data?.marketOverview ?? [])
           .filter((item) => String(item.symbol).includes(filter))
-          .filter((item) =>
-            marketCategory === "INDICES"
-              ? ["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol))
-              : !["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol)),
-          )
+          .filter((item) => {
+            const ticker = String(item.symbol);
+            if (marketCategory === "TOP 5")
+              return discovery?.topFocus.some(
+                (asset) => asset.symbol === ticker,
+              );
+            if (marketCategory === "MOST ACTIVE")
+              return discovery?.categories?.mostActive?.includes(ticker);
+            if (marketCategory === "TOP GAINERS")
+              return discovery?.categories?.topGainers?.includes(ticker);
+            if (marketCategory === "TOP LOSERS")
+              return discovery?.categories?.topLosers?.includes(ticker);
+            const asset = discovery?.assets.find(
+              (entry) => entry.symbol === ticker,
+            );
+            return (
+              asset?.assetType === (marketCategory === "ETFS" ? "ETF" : "STOCK")
+            );
+          })
           .map((item) => {
             const trade = item.latestTrade as
                 | Record<string, unknown>
@@ -294,11 +330,7 @@ export function ProfessionalMarketDashboard({
               </article>
             );
           })}
-        {!data?.marketOverview?.some((item) =>
-          marketCategory === "INDICES"
-            ? ["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol))
-            : !["SPY", "QQQ", "DIA", "IWM"].includes(String(item.symbol)),
-        ) && (
+        {!data?.marketOverview?.length && (
           <p className="market-empty">No supported instruments available.</p>
         )}
       </div>
@@ -349,21 +381,35 @@ export function ProfessionalMarketDashboard({
           </div>
         </div>
         <div className="trading-clocks">
-          {clocks.map(([city, zone], index) => (
-            <div className={index === 0 ? "primary-clock" : ""} key={zone}>
-              <span>{city}</span>
-              <b>
-                {now
-                  ? new Intl.DateTimeFormat("en-GB", {
-                      timeZone: zone,
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    }).format(now)
-                  : "--:--:--"}
-              </b>
-            </div>
-          ))}
+          {clocks.map(([city, zone], index) => {
+            const session =
+              index === 0 && discovery?.market.authoritative
+                ? discovery.market.session
+                : "UNKNOWN";
+            const status =
+              session === "UNKNOWN"
+                ? "LOCAL MARKET TIME · STATUS UNKNOWN"
+                : session.replaceAll("_", "-");
+            return (
+              <div
+                className={`${index === 0 ? "primary-clock" : ""} market-clock status-${session.toLowerCase()}`}
+                key={zone}
+              >
+                <span>{city}</span>
+                <b>
+                  {now
+                    ? new Intl.DateTimeFormat("en-GB", {
+                        timeZone: zone,
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      }).format(now)
+                    : "--:--:--"}
+                </b>
+                <em>{status}</em>
+              </div>
+            );
+          })}
         </div>
         <div className="layout-actions">
           <button
@@ -396,6 +442,7 @@ export function ProfessionalMarketDashboard({
           )}
         </div>
       </div>
+      <AssetGlossary />
       <div className="professional-widget-grid">
         {order.map((widget) =>
           widget === "chart" ? (

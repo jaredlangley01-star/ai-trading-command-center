@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProfessionalMarketDashboard } from "./professional-market-dashboard";
+import { AssetDiscoverySelect } from "./asset-discovery-select";
 
 type Check = {
   name: string;
@@ -348,10 +349,10 @@ export function AdvancedChartsWorkspace() {
           <button className="button">EXPAND CHART</button>
         </header>
         <div className="chart-command-row">
-          <input
-            aria-label="Chart symbol"
+          <AssetDiscoverySelect
             value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onChange={setSymbol}
+            label="Chart symbol"
           />
           <select
             value={timeframe}
