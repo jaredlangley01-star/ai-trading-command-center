@@ -31,6 +31,24 @@ export function safePaperExecutionFailure(error: unknown) {
       code: "ORDER_REJECTED",
       message: "Alpaca rejected the PAPER order.",
     };
+  if (message === "MARKET_CLOSED")
+    return {
+      code: "MARKET_CLOSED",
+      message:
+        "The US equity market is closed. The PAPER market order was not submitted.",
+    };
+  if (message === "ORDER_NOT_AVAILABLE_IN_CURRENT_SESSION")
+    return {
+      code: "ORDER_NOT_AVAILABLE_IN_CURRENT_SESSION",
+      message:
+        "PAPER market orders are unavailable in the current extended-hours session.",
+    };
+  if (message === "STALE_DATA")
+    return {
+      code: "STALE_DATA",
+      message:
+        "The latest Alpaca IEX quote exceeds the regular-session freshness limit.",
+    };
   if (/timeout/i.test(message))
     return {
       code: "ORDER_TIMEOUT",

@@ -82,7 +82,7 @@ export async function GET() {
       systemStatus: "PAUSED",
     });
   const today = new Date().toISOString().slice(0, 10);
-  const [config, daily, decisions, system] = await Promise.all([
+  const [config, daily, decisions, system, heartbeat] = await Promise.all([
     supabase
       .from("auto_trader_config")
       .select("*")
@@ -102,17 +102,33 @@ export async function GET() {
       .limit(20),
     supabase
       .from("system_state")
-      .select("auto_trader_status,emergency_stop_active")
+      .select("mode,auto_trader_status,risk_state,emergency_stop_active")
       .eq("user_id", user.id)
       .maybeSingle(),
+    supabase
+      .from("trading_worker_heartbeats")
+      .select("last_seen_at,metadata")
+      .eq("user_id", user.id)
+      .order("last_seen_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+  const authoritativeStatus = system.data?.emergency_stop_active
+    ? "LOCKED"
+    : (system.data?.auto_trader_status ?? "PAUSED");
   return NextResponse.json({
-    config: mapConfig(config.data),
+    config: {
+      ...mapConfig(config.data),
+      enabled: authoritativeStatus === "ACTIVE",
+    },
     daily: daily.data,
     decisions: decisions.data ?? [],
-    systemStatus: system.data?.emergency_stop_active
-      ? "LOCKED"
-      : (system.data?.auto_trader_status ?? "PAUSED"),
+    systemStatus: authoritativeStatus,
+    workerAcknowledged:
+      heartbeat.data?.metadata?.autoTrader ===
+      (authoritativeStatus === "ACTIVE" ? "SCHEDULED" : "PAUSED"),
+    workerLastSeen: heartbeat.data?.last_seen_at ?? null,
+    activePositions: Number(heartbeat.data?.metadata?.positionCount ?? 0),
   });
 }
 
@@ -141,23 +157,45 @@ export async function POST(request: Request) {
     return NextResponse.json({ config: body.config, mode: "PAPER" });
   }
   if (body.action === "PAUSE" || body.action === "RESUME") {
-    const { data: system } = await supabase
-      .from("system_state")
-      .select("emergency_stop_active")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const [{ data: system }, { data: storedConfig }] = await Promise.all([
+      supabase
+        .from("system_state")
+        .select("mode,risk_state,emergency_stop_active")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("auto_trader_config")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
     if (body.action === "RESUME" && system?.emergency_stop_active)
       return NextResponse.json(
         { error: "Emergency Stop is active." },
         { status: 423 },
       );
-    await supabase
+    if (body.action === "RESUME" && system?.mode !== "PAPER")
+      return NextResponse.json(
+        { error: "LIVE_TRADING_LOCKED" },
+        { status: 423 },
+      );
+    if (body.action === "RESUME" && system?.risk_state === "LOCKED")
+      return NextResponse.json(
+        { error: "Risk Manager is locked." },
+        { status: 423 },
+      );
+    if (body.action === "RESUME" && !validConfig(mapConfig(storedConfig)))
+      return NextResponse.json(
+        { error: "Review and save a valid risk configuration first." },
+        { status: 400 },
+      );
+    const { error: configError } = await supabase
       .from("auto_trader_config")
       .upsert(
         { user_id: user.id, enabled: body.action === "RESUME" },
         { onConflict: "user_id" },
       );
-    await supabase.from("system_state").upsert(
+    const { error: stateError } = await supabase.from("system_state").upsert(
       {
         user_id: user.id,
         mode: "PAPER",
@@ -165,6 +203,17 @@ export async function POST(request: Request) {
       },
       { onConflict: "user_id" },
     );
+    if (configError || stateError)
+      return NextResponse.json(
+        { error: "Auto Trader state could not be persisted safely." },
+        { status: 503 },
+      );
+    await supabase.from("audit_events").insert({
+      user_id: user.id,
+      action:
+        body.action === "RESUME" ? "AUTO_TRADER_RESUMED" : "AUTO_TRADER_PAUSED",
+      metadata: { mode: "PAPER", authoritative_state: "system_state" },
+    });
     return NextResponse.json({
       status: body.action === "RESUME" ? "ACTIVE" : "PAUSED",
       mode: "PAPER",

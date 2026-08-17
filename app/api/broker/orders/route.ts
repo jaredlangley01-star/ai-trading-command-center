@@ -16,22 +16,66 @@ import type {
 } from "@/src/domain/models";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
 import { heartbeatIsFresh } from "@/src/services/diagnostics";
+import {
+  evaluateSessionQuoteFreshness,
+  marketOrderAvailability,
+} from "@/src/services/market-data/session-freshness";
 
 export async function GET(request: Request) {
   const user = await getAuthenticatedOwner();
   if (!user)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const clientOrderId = new URL(request.url).searchParams.get("clientOrderId");
-  if (!clientOrderId)
-    return NextResponse.json(
-      { error: "Client order ID required" },
-      { status: 400 },
-    );
+  const requestedSymbol = new URL(request.url).searchParams.get("symbol");
   const supabase = await createSupabaseServerClient();
   if (!supabase)
     return NextResponse.json(
       { code: "SYNC_FAILED", message: "Order status is unavailable." },
       { status: 503 },
+    );
+  if (!clientOrderId && requestedSymbol) {
+    const { data: quote } = await supabase
+      .from("paper_market_quotes")
+      .select(
+        "bid,ask,last,provider,feed,as_of,market_session,clock_observed_at,is_trading_day,next_open,next_close",
+      )
+      .eq("user_id", user.id)
+      .eq("symbol", requestedSymbol.toUpperCase())
+      .maybeSingle();
+    if (!quote)
+      return NextResponse.json(
+        { state: "STALE_DATA", message: "No synchronized quote is available." },
+        { status: 404 },
+      );
+    const freshness = evaluateSessionQuoteFreshness({
+      quoteTimestamp: quote.as_of,
+      clock: {
+        isOpen: quote.market_session === "REGULAR",
+        nextOpen: quote.next_open,
+        nextClose: quote.next_close,
+        observedAt: quote.clock_observed_at,
+        isTradingDay: quote.is_trading_day,
+      },
+      regularMaxAgeMs: Number(
+        process.env.PAPER_REGULAR_QUOTE_MAX_AGE_MS ?? 120_000,
+      ),
+      extendedMaxAgeMs: Number(
+        process.env.PAPER_EXTENDED_QUOTE_MAX_AGE_MS ?? 300_000,
+      ),
+    });
+    return NextResponse.json({
+      ...freshness,
+      last: Number(quote.last),
+      bid: Number(quote.bid),
+      ask: Number(quote.ask),
+      provider: quote.provider,
+      feed: quote.feed,
+    });
+  }
+  if (!clientOrderId)
+    return NextResponse.json(
+      { error: "Client order ID or symbol required" },
+      { status: 400 },
     );
   const { data, error } = await supabase
     .from("paper_execution_requests")
@@ -164,7 +208,9 @@ export async function POST(request: Request) {
             .maybeSingle(),
           supabase
             .from("paper_market_quotes")
-            .select("bid,ask,last,provider,feed,as_of")
+            .select(
+              "bid,ask,last,provider,feed,as_of,market_session,clock_observed_at,is_trading_day,next_open,next_close",
+            )
             .eq("user_id", user.id)
             .eq("symbol", body.symbol.toUpperCase())
             .maybeSingle(),
@@ -233,13 +279,41 @@ export async function POST(request: Request) {
             Number(position.current_price ?? position.entry_price),
         0,
       );
-    const quoteAgeMs = Date.now() - Date.parse(quoteResult.data.as_of);
-    if (!Number.isFinite(quoteAgeMs) || quoteAgeMs > 120_000)
-      throw new BrokerError(
-        "SYNC_FAILED",
-        "SYNC_FAILED: Railway Alpaca IEX quote is stale.",
-        true,
+    const quoteFreshness = evaluateSessionQuoteFreshness({
+      quoteTimestamp: quoteResult.data.as_of,
+      clock: {
+        isOpen: quoteResult.data.market_session === "REGULAR",
+        nextOpen: quoteResult.data.next_open,
+        nextClose: quoteResult.data.next_close,
+        observedAt: quoteResult.data.clock_observed_at,
+        isTradingDay: quoteResult.data.is_trading_day,
+      },
+      regularMaxAgeMs: Number(
+        process.env.PAPER_REGULAR_QUOTE_MAX_AGE_MS ?? 120_000,
+      ),
+      extendedMaxAgeMs: Number(
+        process.env.PAPER_EXTENDED_QUOTE_MAX_AGE_MS ?? 300_000,
+      ),
+    });
+    const quoteAgeMs = quoteFreshness.ageMs;
+    if (body.type === "MARKET") {
+      const availability = marketOrderAvailability(
+        quoteFreshness.session,
+        quoteFreshness.state,
       );
+      if (!availability.allowed) {
+        const code = availability.code!;
+        const descriptions = {
+          MARKET_CLOSED:
+            "The US equity market is closed. The last regular-session quote remains visible, but this PAPER market order cannot be submitted.",
+          ORDER_NOT_AVAILABLE_IN_CURRENT_SESSION:
+            "PAPER market orders are unavailable in the current extended-hours session.",
+          STALE_DATA:
+            "The latest Alpaca IEX quote exceeds the strict regular-session freshness limit.",
+        } as const;
+        throw new BrokerError(code, descriptions[code], false);
+      }
+    }
     const expectedPrice = Number(body.limitPrice ?? quoteResult.data.last ?? 0);
     const portfolioValue = Number(portfolioResult.data.equity ?? 0);
     const highWaterMark = Math.max(
@@ -392,6 +466,8 @@ export async function POST(request: Request) {
           market_data_feed: quoteResult.data.feed,
           quote_timestamp: quoteResult.data.as_of,
           quote_age_ms: quoteAgeMs,
+          market_session: quoteFreshness.session,
+          quote_freshness: quoteFreshness.state,
         },
       });
       await supabase.from("notification_events").upsert(
@@ -421,6 +497,9 @@ export async function POST(request: Request) {
       failure.code === "TRADE_PERMISSION_DENIED" ||
       failure.code === "PAPER_CONFIRMATION_REQUIRED" ||
       failure.code === "LIVE_TRADING_LOCKED" ||
+      failure.code === "MARKET_CLOSED" ||
+      failure.code === "ORDER_NOT_AVAILABLE_IN_CURRENT_SESSION" ||
+      failure.code === "STALE_DATA" ||
       failure.code === "ORDER_REJECTED";
     if (supabase) {
       if (reservedOrderId)

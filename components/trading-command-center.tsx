@@ -1271,6 +1271,8 @@ function AutoTraderWorkspace({
   const [config, setConfig] = useState<AutoTraderConfig | null>(null),
     [daily, setDaily] = useState<AutoDaily>(null),
     [systemStatus, setSystemStatus] = useState("PAUSED"),
+    [workerAcknowledged, setWorkerAcknowledged] = useState(false),
+    [activePositions, setActivePositions] = useState(0),
     [decisions, setDecisions] = useState<StoredAutomatedDecision[]>([]),
     [symbol, setSymbol] = useState("AAPL"),
     [busy, setBusy] = useState(false),
@@ -1282,11 +1284,15 @@ function AutoTraderWorkspace({
       daily: AutoDaily;
       decisions: StoredAutomatedDecision[];
       systemStatus: string;
+      workerAcknowledged: boolean;
+      activePositions: number;
     };
     setConfig(data.config);
     setDaily(data.daily);
     setDecisions(data.decisions);
     setSystemStatus(data.systemStatus);
+    setWorkerAcknowledged(data.workerAcknowledged);
+    setActivePositions(data.activePositions);
   };
   useEffect(() => {
     void fetch("/api/auto-trader")
@@ -1297,11 +1303,15 @@ function AutoTraderWorkspace({
           daily: AutoDaily;
           decisions: StoredAutomatedDecision[];
           systemStatus: string;
+          workerAcknowledged: boolean;
+          activePositions: number;
         }) => {
           setConfig(data.config);
           setDaily(data.daily);
           setDecisions(data.decisions);
           setSystemStatus(data.systemStatus);
+          setWorkerAcknowledged(data.workerAcknowledged);
+          setActivePositions(data.activePositions);
         },
       )
       .catch(() => setMessage("Auto Trader state is unavailable."));
@@ -1369,6 +1379,19 @@ function AutoTraderWorkspace({
               ? ` — ${daily.lock_reason.replaceAll("_", " ")}`
               : ""}
             . EXISTING POSITIONS REMAIN MANAGEABLE.
+          </div>
+        )}
+        {status === "ACTIVE" && (
+          <div className="ticket-state">
+            <b>AUTO TRADER ACTIVE</b>
+            <span>
+              {activePositions === 0
+                ? "SCANNING / WAITING FOR SETUP · ACTIVE TRADES: 0"
+                : `ACTIVE TRADES: ${activePositions}`}
+              {workerAcknowledged
+                ? " · RAILWAY ACKNOWLEDGED"
+                : " · WAITING FOR RAILWAY ACKNOWLEDGEMENT"}
+            </span>
           </div>
         )}
         <div className="auto-metrics">
@@ -3139,11 +3162,36 @@ function BrokerWorkspace({
     [confirming, setConfirming] = useState(false),
     [status, setStatus] = useState("READY"),
     [message, setMessage] = useState(""),
+    [quoteHealth, setQuoteHealth] = useState<{
+      state: string;
+      session: string;
+      ageMs: number;
+      last: number;
+      quoteTimestamp: string;
+      nextOpen: string | null;
+    } | null>(null),
     [trackingClientOrderId, setTrackingClientOrderId] = useState<string | null>(
       null,
     ),
     [clientOrderId, setClientOrderId] = useState(newManualRequestId),
     submitting = useRef(false);
+  useEffect(() => {
+    let stopped = false;
+    const refresh = async () => {
+      const response = await fetch(
+        `/api/broker/orders?symbol=${encodeURIComponent(symbol.trim().toUpperCase())}`,
+        { cache: "no-store" },
+      );
+      if (response.ok && !stopped) setQuoteHealth(await response.json());
+    };
+    const initial = window.setTimeout(refresh, 0);
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      stopped = true;
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [symbol]);
   useEffect(() => {
     if (!trackingClientOrderId) return;
     let stopped = false;
@@ -3376,6 +3424,22 @@ function BrokerWorkspace({
         <div className="ticket-state">
           <b>STATUS: {status}</b>
           {message && <span>{message}</span>}
+        </div>
+        <div className="quote-session-state">
+          <b>
+            {quoteHealth?.session === "REGULAR"
+              ? "MARKET OPEN"
+              : quoteHealth?.session
+                ? `MARKET ${quoteHealth.session.replaceAll("_", " ")}`
+                : "MARKET STATUS UNAVAILABLE"}
+          </b>
+          <span>
+            {quoteHealth?.state === "CURRENT"
+              ? `Quote current · ${Math.round(quoteHealth.ageMs / 1000)} seconds old`
+              : quoteHealth?.state === "MARKET_CLOSED"
+                ? `Last regular quote: $${quoteHealth.last.toFixed(2)}${quoteHealth.nextOpen ? ` · Next session: ${new Date(quoteHealth.nextOpen).toLocaleString()}` : ""}`
+                : "Latest quote exceeds the permitted session freshness threshold."}
+          </span>
         </div>
         <button
           className="button primary ticket-submit"

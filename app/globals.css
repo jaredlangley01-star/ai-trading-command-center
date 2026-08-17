@@ -2145,6 +2145,21 @@ input {
   color: #8996a5;
   text-align: right;
 }
+.quote-session-state {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line2);
+  background: var(--panel2);
+}
+.quote-session-state b {
+  font: 700 11px var(--mono);
+}
+.quote-session-state span {
+  color: var(--muted);
+  font-size: 10px;
+}
 .ticket-submit {
   width: 100%;
   min-height: 40px;

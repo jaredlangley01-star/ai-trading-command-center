@@ -16,6 +16,9 @@ export type BrokerFailureCode =
   | "BROKER_AUTH_FAILED"
   | "ORDER_TIMEOUT"
   | "SYNC_FAILED"
+  | "STALE_DATA"
+  | "MARKET_CLOSED"
+  | "ORDER_NOT_AVAILABLE_IN_CURRENT_SESSION"
   | "DISCONNECTED_SESSION";
 export class BrokerError extends Error {
   readonly code: BrokerSafetyCode | BrokerFailureCode;

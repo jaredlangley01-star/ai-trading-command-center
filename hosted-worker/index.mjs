@@ -36,6 +36,7 @@ import {
   normalizePaperExecutionStatus,
   safePaperExecutionFailure,
 } from "../src/services/paper-execution.ts";
+import { classifyEquityMarketSession } from "../src/services/market-data/session-freshness.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
@@ -180,11 +181,7 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
   if (!configResult.data) return;
   const config = mapAutoConfig(configResult.data),
     system = systemResult.data;
-  if (
-    !config.enabled ||
-    system?.auto_trader_status !== "ACTIVE" ||
-    system?.emergency_stop_active
-  )
+  if (system?.auto_trader_status !== "ACTIVE" || system?.emergency_stop_active)
     return;
   const latest = new Map();
   for (const snapshot of snapshotsResult.data ?? [])
@@ -1508,28 +1505,38 @@ async function processManualExecutionRequests() {
       .maybeSingle();
     if (!claimed) continue;
     try {
-      const [{ data: state }, { data: riskDecision }, { data: platformOrder }] =
-        await Promise.all([
-          db
-            .from("system_state")
-            .select("mode,risk_state,emergency_stop_active")
-            .eq("user_id", request.user_id)
-            .maybeSingle(),
-          db
-            .from("risk_decisions")
-            .select("decision")
-            .eq("user_id", request.user_id)
-            .eq("client_order_id", request.client_order_id)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          db
-            .from("orders")
-            .select("id")
-            .eq("id", request.order_id)
-            .eq("user_id", request.user_id)
-            .maybeSingle(),
-        ]);
+      const [
+        { data: state },
+        { data: riskDecision },
+        { data: platformOrder },
+        { data: quoteState },
+      ] = await Promise.all([
+        db
+          .from("system_state")
+          .select("mode,risk_state,emergency_stop_active")
+          .eq("user_id", request.user_id)
+          .maybeSingle(),
+        db
+          .from("risk_decisions")
+          .select("decision")
+          .eq("user_id", request.user_id)
+          .eq("client_order_id", request.client_order_id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        db
+          .from("orders")
+          .select("id")
+          .eq("id", request.order_id)
+          .eq("user_id", request.user_id)
+          .maybeSingle(),
+        db
+          .from("paper_market_quotes")
+          .select("market_session,as_of")
+          .eq("user_id", request.user_id)
+          .eq("symbol", request.symbol)
+          .maybeSingle(),
+      ]);
       if (
         state?.mode !== "PAPER" ||
         state?.emergency_stop_active ||
@@ -1538,6 +1545,18 @@ async function processManualExecutionRequests() {
         !platformOrder
       )
         throw new Error("RISK_REJECTED");
+      if (request.order_type === "MARKET") {
+        if (quoteState?.market_session === "CLOSED")
+          throw new Error("MARKET_CLOSED");
+        if (
+          quoteState?.market_session === "PRE_MARKET" ||
+          quoteState?.market_session === "AFTER_HOURS"
+        )
+          throw new Error("ORDER_NOT_AVAILABLE_IN_CURRENT_SESSION");
+        const quoteAgeMs = Date.now() - Date.parse(quoteState?.as_of ?? "");
+        if (!Number.isFinite(quoteAgeMs) || quoteAgeMs > 120_000)
+          throw new Error("STALE_DATA");
+      }
       const response = await json(`${PAPER_URL}/v2/orders`, {
         method: "POST",
         headers: { ...brokerHeaders(), "content-type": "application/json" },
@@ -1640,7 +1659,15 @@ async function recordFilledPaperExecution(ownerId, clientOrderId) {
   if (claimed) await db.rpc("record_paper_trade_open", { p_user_id: ownerId });
 }
 
-async function persistOwnerQuotes(ownerId, snapshots, asOf) {
+async function persistOwnerQuotes(ownerId, snapshots, asOf, clock, calendar) {
+  const normalizedClock = {
+    isOpen: Boolean(clock?.is_open),
+    nextOpen: clock?.next_open ?? null,
+    nextClose: clock?.next_close ?? null,
+    observedAt: asOf,
+    isTradingDay: Array.isArray(calendar) && calendar.length > 0,
+  };
+  const marketSession = classifyEquityMarketSession(normalizedClock);
   const rows = Object.entries(snapshots ?? {}).flatMap(([symbol, snapshot]) => {
     const last = number(
       snapshot?.latestTrade?.p ??
@@ -1658,6 +1685,11 @@ async function persistOwnerQuotes(ownerId, snapshots, asOf) {
         provider: "ALPACA",
         feed: "IEX",
         as_of: snapshot?.latestTrade?.t ?? snapshot?.minuteBar?.t ?? asOf,
+        market_session: marketSession,
+        clock_observed_at: asOf,
+        is_trading_day: normalizedClock.isTradingDay,
+        next_open: normalizedClock.nextOpen,
+        next_close: normalizedClock.nextClose,
         updated_at: asOf,
       },
     ];
@@ -1675,35 +1707,54 @@ async function cycle() {
   await processBacktestJob();
   const { data: owners, error } = await db.from("profiles").select("id");
   if (error) throw error;
-  const [account, positions, orders, fills, portfolioHistory, snapshots] =
-    await Promise.all([
-      json(`${PAPER_URL}/v2/account`, {
-        headers: brokerHeaders(),
-      }),
-      json(`${PAPER_URL}/v2/positions`, {
-        headers: brokerHeaders(),
-      }),
-      json(`${PAPER_URL}/v2/orders?status=all&direction=desc&limit=100`, {
-        headers: brokerHeaders(),
-      }),
-      json(
-        `${PAPER_URL}/v2/account/activities/FILL?direction=desc&page_size=100`,
-        { headers: brokerHeaders() },
-      ),
-      json(
-        `${PAPER_URL}/v2/account/portfolio/history?period=1D&timeframe=1Min`,
-        { headers: brokerHeaders() },
-      ),
-      json(
-        `${DATA_URL}/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols.join(","))}&feed=iex`,
-        {
-          headers: headers(
-            process.env.ALPACA_API_KEY,
-            process.env.ALPACA_API_SECRET,
-          ),
-        },
-      ),
-    ]);
+  const marketDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const [
+    account,
+    positions,
+    orders,
+    fills,
+    portfolioHistory,
+    snapshots,
+    clock,
+    calendar,
+  ] = await Promise.all([
+    json(`${PAPER_URL}/v2/account`, {
+      headers: brokerHeaders(),
+    }),
+    json(`${PAPER_URL}/v2/positions`, {
+      headers: brokerHeaders(),
+    }),
+    json(`${PAPER_URL}/v2/orders?status=all&direction=desc&limit=100`, {
+      headers: brokerHeaders(),
+    }),
+    json(
+      `${PAPER_URL}/v2/account/activities/FILL?direction=desc&page_size=100`,
+      { headers: brokerHeaders() },
+    ),
+    json(`${PAPER_URL}/v2/account/portfolio/history?period=1D&timeframe=1Min`, {
+      headers: brokerHeaders(),
+    }),
+    json(
+      `${DATA_URL}/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols.join(","))}&feed=iex`,
+      {
+        headers: headers(
+          process.env.ALPACA_API_KEY,
+          process.env.ALPACA_API_SECRET,
+        ),
+      },
+    ),
+    json(`${PAPER_URL}/v2/clock`, { headers: brokerHeaders() }),
+    json(`${PAPER_URL}/v2/calendar?start=${marketDate}&end=${marketDate}`, {
+      headers: brokerHeaders(),
+    }),
+  ]);
+  for (const owner of owners ?? [])
+    await persistOwnerQuotes(owner.id, snapshots, startedAt, clock, calendar);
   await processManualExecutionRequests();
   for (const owner of owners ?? []) {
     const { data: state } = await db
@@ -1714,7 +1765,6 @@ async function cycle() {
     const autoTraderPermitted =
       state?.auto_trader_status === "ACTIVE" &&
       state?.emergency_stop_active === false;
-    await persistOwnerQuotes(owner.id, snapshots, startedAt);
     await synchronizeOwnerPortfolio(
       owner.id,
       account,
