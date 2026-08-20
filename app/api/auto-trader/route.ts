@@ -61,9 +61,20 @@ const mapConfig = (row: Record<string, unknown> | null): AutoTraderConfig =>
         minimumHistoricalScore: Number(row.minimum_historical_score),
         longEnabled: Boolean(row.long_enabled),
         shortEnabled: Boolean(row.short_enabled),
-        sessionStart: String(row.session_start),
-        sessionEnd: String(row.session_end),
-        sessionTimezone: String(row.session_timezone),
+        sessionStart: String(row.session_start ?? "09:30"),
+        sessionEnd: String(row.session_end ?? "16:00"),
+        sessionTimezone: String(row.session_timezone ?? "America/New_York"),
+        entryStart: String(row.entry_start ?? "09:35"),
+        lastEntryTime: String(row.last_entry_time ?? "15:15"),
+        forceExitTime: String(row.force_exit_time ?? "15:50"),
+        maximumHoldMinutes:
+          row.maximum_hold_minutes == null
+            ? null
+            : Number(row.maximum_hold_minutes),
+        minimumExitScore: Number(row.minimum_exit_score ?? 45),
+        strategyHealthMinimumSample: Number(
+          row.strategy_health_minimum_sample ?? 20,
+        ),
         cooldownMinutes: Number(row.cooldown_minutes),
         lossCooldownMinutes: Number(row.loss_cooldown_minutes),
       }
@@ -638,6 +649,12 @@ async function upsertConfig(
       session_start: config.sessionStart,
       session_end: config.sessionEnd,
       session_timezone: config.sessionTimezone,
+      entry_start: config.entryStart,
+      last_entry_time: config.lastEntryTime,
+      force_exit_time: config.forceExitTime,
+      maximum_hold_minutes: config.maximumHoldMinutes,
+      minimum_exit_score: config.minimumExitScore,
+      strategy_health_minimum_sample: config.strategyHealthMinimumSample,
       cooldown_minutes: config.cooldownMinutes,
       loss_cooldown_minutes: config.lossCooldownMinutes,
       updated_at: new Date().toISOString(),
@@ -647,6 +664,7 @@ async function upsertConfig(
 }
 
 function validConfig(config: AutoTraderConfig) {
+  const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
   return (
     config.minimumStrategyScore >= 0 &&
     config.minimumStrategyScore <= 100 &&
@@ -656,6 +674,23 @@ function validConfig(config: AutoTraderConfig) {
     config.minimumConfidence <= 100 &&
     config.minimumHistoricalScore >= 0 &&
     config.minimumHistoricalScore <= 100 &&
+    config.minimumExitScore >= 0 &&
+    config.minimumExitScore <= 100 &&
+    config.strategyHealthMinimumSample >= 5 &&
+    config.strategyHealthMinimumSample <= 500 &&
+    [
+      config.sessionStart,
+      config.entryStart,
+      config.lastEntryTime,
+      config.forceExitTime,
+      config.sessionEnd,
+    ].every(validTime) &&
+    config.sessionStart <= config.entryStart &&
+    config.entryStart < config.lastEntryTime &&
+    config.lastEntryTime < config.forceExitTime &&
+    config.forceExitTime < config.sessionEnd &&
+    (config.maximumHoldMinutes == null ||
+      (config.maximumHoldMinutes >= 5 && config.maximumHoldMinutes <= 1440)) &&
     config.allowedAssets.every((asset) => Boolean(assets[asset])) &&
     config.allowedStrategies.length > 0 &&
     [

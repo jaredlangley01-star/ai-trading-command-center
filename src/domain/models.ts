@@ -57,6 +57,7 @@ export interface BrokerOrderRequest {
   confirmed: boolean;
   clientOrderId?: string;
   stopLoss?: number;
+  takeProfit?: number;
   source?: "MANUAL" | "AUTO_TRADER" | "BIG_MONEY" | "POSITION_MANAGER";
 }
 export interface BrokerOrderResult {
@@ -144,6 +145,12 @@ export interface AutoTraderConfig {
   sessionStart: string;
   sessionEnd: string;
   sessionTimezone: string;
+  entryStart: string;
+  lastEntryTime: string;
+  forceExitTime: string;
+  maximumHoldMinutes: number | null;
+  minimumExitScore: number;
+  strategyHealthMinimumSample: number;
   cooldownMinutes: number;
   lossCooldownMinutes: number;
 }

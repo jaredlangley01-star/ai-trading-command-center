@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedOwner } from "@/src/lib/supabase/auth";
 import { createSupabaseServerClient } from "@/src/lib/supabase/server";
-import { strategyPerformance } from "@/src/services/paper-workflow";
+import { livePaperStrategyPerformance } from "@/src/services/strategy-analytics";
 
 export async function GET() {
   const user = await getAuthenticatedOwner();
@@ -24,6 +24,8 @@ export async function GET() {
       .from("completed_paper_trades")
       .select("*")
       .eq("user_id", user.id)
+      .eq("trade_origin", "AUTO_TRADER")
+      .eq("environment", "PAPER")
       .order("exit_timestamp", { ascending: false })
       .limit(500),
     db
@@ -41,7 +43,11 @@ export async function GET() {
   return NextResponse.json({
     autoTrader: config.data,
     signals: signals.data ?? [],
-    performance: strategyPerformance(trades.data ?? []),
+    performance: livePaperStrategyPerformance(
+      trades.data ?? [],
+      Number(config.data?.strategy_health_minimum_sample ?? 20),
+    ),
+    performanceSource: "AUTO_TRADER_LIVE_PAPER_ONLY",
     trades: trades.data ?? [],
     backtests: backtests.data ?? [],
   });

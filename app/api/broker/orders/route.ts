@@ -412,6 +412,7 @@ export async function POST(request: Request) {
             order_type: body.type,
             limit_price: body.type === "LIMIT" ? body.limitPrice : null,
             stop_loss: body.stopLoss ?? null,
+            take_profit: body.takeProfit ?? null,
             source: "MANUAL",
             status: "QUEUED",
           })

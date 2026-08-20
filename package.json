@@ -12,6 +12,7 @@
     "start:vercel": "next start",
     "worker:start": "node --experimental-strip-types hosted-worker/index.mjs",
     "worker:notifications": "node --experimental-strip-types hosted-worker/notification-worker.mjs",
+    "worker:trader": "node --experimental-strip-types hosted-worker/trader-worker.mjs",
     "worker:check": "node --check hosted-worker/index.mjs",
     "start": "vinext start",
     "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.mjs",

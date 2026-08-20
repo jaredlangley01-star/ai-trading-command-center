@@ -121,6 +121,14 @@ export function OrdersWorkspace({
               BACK TO ORDERS
             </button>
           )}
+          {!detail && (
+            <button
+              className="button"
+              onClick={() => window.location.assign("/api/exports/orders")}
+            >
+              EXPORT ORDERS CSV
+            </button>
+          )}
         </header>
         {error && <div className="broker-error">{error}</div>}
         {!detail && (

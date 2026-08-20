@@ -4849,3 +4849,130 @@ body {
     grid-template-columns: 1fr;
   }
 }
+.trader-assistant {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 80;
+  display: grid;
+  justify-items: end;
+  gap: 0.6rem;
+}
+.trader-launcher {
+  position: relative;
+  border: 1px solid #35bdf5;
+  border-radius: 999px;
+  padding: 0.8rem 1.1rem;
+  background: #071c2c;
+  color: #dff7ff;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0.6rem 2rem #0008;
+}
+.trader-launcher span {
+  position: absolute;
+  top: 0.1rem;
+  right: 0.1rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+.trader-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(12rem, 1fr) auto auto;
+  width: min(26rem, calc(100vw - 2rem));
+  height: min(38rem, calc(100vh - 7rem));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--panel);
+  box-shadow: 0 1rem 3rem #000a;
+}
+.trader-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+.trader-panel > header div,
+.trader-messages article {
+  display: grid;
+  gap: 0.25rem;
+}
+.trader-panel > header small {
+  color: var(--muted);
+}
+.trader-panel > header button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1.5rem;
+}
+.trader-safety {
+  padding: 0.5rem 0.85rem;
+  background: #16300f;
+  color: #86efac;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+.trader-messages {
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 0.85rem;
+}
+.trader-messages article {
+  padding: 0.7rem;
+  border-radius: 0.6rem;
+  background: var(--panel-soft);
+  overflow-wrap: anywhere;
+}
+.trader-messages article.owner {
+  margin-left: 2rem;
+  background: #0b3045;
+}
+.trader-messages article p {
+  margin: 0;
+  line-height: 1.45;
+}
+.trader-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.trader-actions a {
+  color: #7dd3fc;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+.trader-panel form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.trader-panel form input {
+  min-width: 0;
+}
+.trader-panel form button {
+  border: 0;
+  border-radius: 0.35rem;
+  padding: 0 0.8rem;
+  background: #0ea5e9;
+  color: #fff;
+  font-weight: 800;
+}
+@media (max-width: 640px) {
+  .trader-assistant {
+    right: 0.6rem;
+    bottom: 4.8rem;
+  }
+  .trader-panel {
+    width: calc(100vw - 1.2rem);
+    height: calc(100vh - 10rem);
+  }
+}

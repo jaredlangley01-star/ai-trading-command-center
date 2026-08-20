@@ -24,6 +24,11 @@ import {
 } from "./notification-workspace";
 import { ProfessionalMarketDashboard } from "./professional-market-dashboard";
 import { AssetDiscoverySelect } from "./asset-discovery-select";
+import { TraderAssistant } from "./trader-assistant";
+import {
+  dayTraderSession,
+  timeUntilForcedExitMs,
+} from "@/src/services/intraday-lifecycle";
 import {
   AdvancedChartsWorkspace,
   DiagnosticsWorkspace,
@@ -690,6 +695,7 @@ export function TradingCommandCenter({
           )}
         </div>
       </main>
+      <TraderAssistant />
       <nav className="mobile-nav" aria-label="Mobile navigation">
         {[
           ["Dashboard", "⌂", "Home"],
@@ -890,7 +896,9 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
       <section className="module broker-panel">
         <header className="module-head">
           <div>
-            <span className="section-label">BIG MONEY RESEARCH</span>
+            <span className="section-label">
+              BIG MONEY · MULTI-DAY · OWNER APPROVAL
+            </span>
             <p>Market Data → Strategy → Research → Risk → Owner Approval</p>
           </div>
           <span className="paper-trade-label">PAPER ONLY · OWNER APPROVAL</span>
@@ -1411,12 +1419,26 @@ function AutoTraderWorkspace({
       ? daily.status
       : systemStatus;
   const deployed = Number(daily?.deployed_capital ?? 0);
+  const intradaySchedule = {
+    timezone: config.sessionTimezone,
+    sessionStart: config.sessionStart,
+    sessionEnd: config.sessionEnd,
+    entryStart: config.entryStart,
+    lastEntryTime: config.lastEntryTime,
+    forceExitTime: config.forceExitTime,
+    maxHoldMinutes: config.maximumHoldMinutes,
+    minimumExitScore: config.minimumExitScore,
+  };
+  const daySession = dayTraderSession(new Date(), intradaySchedule);
+  const forcedExitMs = timeUntilForcedExitMs(new Date(), intradaySchedule);
   return (
     <div className="auto-workspace">
       <section className="module auto-hero">
         <header className="module-head">
           <div>
-            <span className="section-label">AUTOMATED PAPER WORKFLOW</span>
+            <span className="section-label">
+              AUTO TRADER · DAY TRADING · PAPER
+            </span>
             <p>Strategy → Risk → Permission → Paper Broker → Journal</p>
           </div>
           <div className="auto-statuses">
@@ -1449,6 +1471,17 @@ function AutoTraderWorkspace({
           </div>
         )}
         <section className="auto-activity-panel">
+          <div>
+            <span>DAY TRADER SESSION</span>
+            <b>{daySession}</b>
+            <small>
+              {daySession === "OPEN"
+                ? `${Math.ceil(forcedExitMs / 60_000)} minutes until forced exit`
+                : daySession === "CLOSING"
+                  ? "Closing positions · new entries blocked"
+                  : "New intraday entries unavailable"}
+            </small>
+          </div>
           <div>
             <span>CURRENT ACTIVITY</span>
             <b>{activity.current}</b>
@@ -1571,6 +1604,9 @@ function AutoTraderWorkspace({
               ["minimumHistoricalScore", "MIN HISTORICAL EVIDENCE"],
               ["cooldownMinutes", "COOLDOWN AFTER TRADE (MIN)"],
               ["lossCooldownMinutes", "COOLDOWN AFTER LOSS (MIN)"],
+              ["maximumHoldMinutes", "MAXIMUM HOLD (MIN)"],
+              ["minimumExitScore", "MINIMUM EXIT SCORE"],
+              ["strategyHealthMinimumSample", "STRATEGY HEALTH MIN SAMPLE"],
             ] as Array<[keyof AutoTraderConfig, string]>
           ).map(([key, label]) => (
             <label key={key}>
@@ -1589,9 +1625,15 @@ function AutoTraderWorkspace({
                     ? 100
                     : undefined
                 }
-                value={config[key] as number}
+                value={(config[key] as number | null) ?? ""}
                 onChange={(event) =>
-                  setConfig({ ...config, [key]: Number(event.target.value) })
+                  setConfig({
+                    ...config,
+                    [key]:
+                      key === "maximumHoldMinutes" && !event.target.value
+                        ? null
+                        : Number(event.target.value),
+                  })
                 }
               />
             </label>
@@ -1652,6 +1694,36 @@ function AutoTraderWorkspace({
               value={config.sessionEnd}
               onChange={(event) =>
                 setConfig({ ...config, sessionEnd: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>ENTRY START</span>
+            <input
+              type="time"
+              value={config.entryStart}
+              onChange={(event) =>
+                setConfig({ ...config, entryStart: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>LAST ENTRY TIME</span>
+            <input
+              type="time"
+              value={config.lastEntryTime}
+              onChange={(event) =>
+                setConfig({ ...config, lastEntryTime: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>FORCE EXIT TIME</span>
+            <input
+              type="time"
+              value={config.forceExitTime}
+              onChange={(event) =>
+                setConfig({ ...config, forceExitTime: event.target.value })
               }
             />
           </label>
@@ -2146,6 +2218,12 @@ function BacktestingWorkspace() {
           <span role="status">{status}</span>
           <button className="button primary" onClick={run}>
             RUN HOSTED BACKTEST
+          </button>
+          <button
+            className="button"
+            onClick={() => window.location.assign("/api/exports/backtests")}
+          >
+            EXPORT BACKTEST CSV
           </button>
         </footer>
       </section>

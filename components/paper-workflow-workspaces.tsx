@@ -44,7 +44,7 @@ export function ActiveTradeHeader({ positions }: { positions: Row[] }) {
       </span>
       {summary.active > 0 && (
         <span>
-          BIG <b>{summary.big}</b> · SMALL <b>{summary.small}</b>
+          DAY TRADES <b>{summary.small}</b> · BIG MONEY <b>{summary.big}</b>
           {summary.standard ? (
             <>
               {" "}
@@ -104,6 +104,8 @@ export function PortfolioWorkspace({
           "P/L %",
           "STOP",
           "TARGET",
+          "PROTECTION",
+          "PROTECTION TYPE",
           "STRATEGY",
           "ORIGIN",
           "OPENED",
@@ -121,6 +123,11 @@ export function PortfolioWorkspace({
           `${Number(position.unrealized_pl_pct ?? 0).toFixed(2)}%`,
           position.stop_loss == null ? "—" : money(position.stop_loss),
           position.take_profit == null ? "—" : money(position.take_profit),
+          String(position.protection_status ?? "UNPROTECTED"),
+          String(position.protection_type ?? "NOT VERIFIED").replaceAll(
+            "_",
+            "-",
+          ),
           String(position.strategy_name ?? "Unattributed"),
           String(position.trade_origin ?? "STANDARD").replaceAll("_", " "),
           position.opened_at
@@ -165,6 +172,12 @@ export function PortfolioWorkspace({
           new Date(String(fill.executed_at)).toLocaleString(),
         ])}
       />
+      <button
+        className="button"
+        onClick={() => window.location.assign("/api/exports/fills")}
+      >
+        EXPORT FILLS CSV
+      </button>
     </div>
   );
 }
@@ -275,6 +288,12 @@ export function TradeJournalWorkspace() {
         ))}
       </section>
       <section className="module journal-filters">
+        <button
+          className="button"
+          onClick={() => window.location.assign("/api/exports/journal")}
+        >
+          EXPORT CSV
+        </button>
         <input
           aria-label="Journal from date"
           type="date"
@@ -409,7 +428,29 @@ export function StrategyPerformanceWorkspace({
         maximum_concurrent_positions?: number;
       };
       signals: Row[];
-      performance: Record<string, ReturnType<typeof journalSummary>>;
+      performance: Record<
+        string,
+        {
+          completed: number;
+          wins: number;
+          losses: number;
+          winRate: number;
+          totalRealizedPl: number;
+          averageWin: number;
+          averageLoss: number;
+          largestWin: number;
+          largestLoss: number;
+          profitFactor: number;
+          expectancy: number;
+          maxDrawdown: number;
+          averageDurationMinutes: number;
+          stopLossFrequency: number;
+          takeProfitFrequency: number;
+          endOfSessionExitFrequency: number;
+          signalExitFrequency: number;
+          health: string;
+        }
+      >;
       trades: Row[];
       backtests: Row[];
     } | null>(null),
@@ -431,10 +472,6 @@ export function StrategyPerformanceWorkspace({
       ),
     [data, selected],
   );
-  const backtest = (data?.backtests ?? []).find(
-    (item) => String(item.strategy_name) === selected,
-  );
-  const backtestMetrics = (backtest?.metrics ?? {}) as Record<string, number>;
   const recentTrades = (data?.trades ?? []).filter(
     (trade) => String(trade.strategy_name) === selected,
   );
@@ -467,7 +504,10 @@ export function StrategyPerformanceWorkspace({
                 </small>
               </div>
               <span className="status-badge">
-                {data?.autoTrader?.enabled && allowed ? "ENABLED" : "DISABLED"}
+                {stats?.health ??
+                  (data?.autoTrader?.enabled && allowed
+                    ? "ENABLED"
+                    : "DISABLED")}
               </span>
               <strong>
                 {stats ? `${stats.winRate.toFixed(1)}%` : "—"}
@@ -512,20 +552,28 @@ export function StrategyPerformanceWorkspace({
             ["WINS", data?.performance?.[selected]?.wins ?? 0],
             ["LOSSES", data?.performance?.[selected]?.losses ?? 0],
             [
+              "HEALTH",
+              data?.performance?.[selected]?.health ?? "NOT ENOUGH DATA",
+            ],
+            [
               "REALIZED P/L",
               signed(data?.performance?.[selected]?.totalRealizedPl ?? 0),
             ],
             [
-              "AVG RETURN",
+              "PROFIT FACTOR",
               data?.performance?.[selected]?.completed
-                ? `${data.performance[selected].averageReturn.toFixed(2)}%`
+                ? Number.isFinite(data.performance[selected].profitFactor)
+                  ? data.performance[selected].profitFactor.toFixed(2)
+                  : "∞"
                 : "NOT ENOUGH DATA YET",
             ],
             [
-              "MAX DRAWDOWN",
-              backtest
-                ? `${Number(backtestMetrics.maximumDrawdownPct ?? 0).toFixed(2)}% BACKTEST`
-                : "NOT ENOUGH DATA YET",
+              "EXPECTANCY",
+              signed(data?.performance?.[selected]?.expectancy ?? 0),
+            ],
+            [
+              "LIVE PAPER DRAWDOWN",
+              money(data?.performance?.[selected]?.maxDrawdown ?? 0),
             ],
           ].map(([label, value]) => (
             <div className="module" key={String(label)}>
@@ -577,6 +625,12 @@ export function StrategyPerformanceWorkspace({
           onClick={openBacktesting}
         >
           VIEW HISTORICAL / BACKTESTING EVIDENCE →
+        </button>
+        <button
+          className="button"
+          onClick={() => window.location.assign("/api/exports/strategies")}
+        >
+          EXPORT LIVE PAPER STRATEGY CSV
         </button>
       </section>
     </div>

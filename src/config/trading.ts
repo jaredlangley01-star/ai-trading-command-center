@@ -40,6 +40,12 @@ export const defaultAutoTraderConfig: AutoTraderConfig = {
   sessionStart: "09:30",
   sessionEnd: "16:00",
   sessionTimezone: "America/New_York",
+  entryStart: "09:35",
+  lastEntryTime: "15:15",
+  forceExitTime: "15:50",
+  maximumHoldMinutes: 120,
+  minimumExitScore: 45,
+  strategyHealthMinimumSample: 20,
   cooldownMinutes: 60,
   lossCooldownMinutes: 240,
 };

@@ -37,6 +37,12 @@ import {
   safePaperExecutionFailure,
 } from "../src/services/paper-execution.ts";
 import { classifyEquityMarketSession } from "../src/services/market-data/session-freshness.ts";
+import {
+  canOpenIntradayEntry,
+  dayTraderSession,
+  evaluateIntradayExit,
+  isOvernightViolation,
+} from "../src/services/intraday-lifecycle.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
@@ -146,6 +152,13 @@ const mapAutoConfig = (row) => ({
   sessionStart: String(row.session_start ?? "09:30"),
   sessionEnd: String(row.session_end ?? "16:00"),
   sessionTimezone: String(row.session_timezone ?? "America/New_York"),
+  entryStart: String(row.entry_start ?? "09:35"),
+  lastEntryTime: String(row.last_entry_time ?? "15:15"),
+  forceExitTime: String(row.force_exit_time ?? "15:50"),
+  maximumHoldMinutes:
+    row.maximum_hold_minutes == null ? null : number(row.maximum_hold_minutes),
+  minimumExitScore: number(row.minimum_exit_score ?? 45),
+  strategyHealthMinimumSample: number(row.strategy_health_minimum_sample ?? 20),
   cooldownMinutes: number(row.cooldown_minutes ?? 60),
   lossCooldownMinutes: number(row.loss_cooldown_minutes ?? 240),
 });
@@ -228,14 +241,16 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
     };
   });
   const ranked = rankAutonomousCandidates(candidates, config);
-  const sessionParts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: config.sessionTimezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date());
-  const sessionOpen =
-    sessionParts >= config.sessionStart && sessionParts <= config.sessionEnd;
+  const sessionOpen = canOpenIntradayEntry(new Date(), {
+    timezone: config.sessionTimezone,
+    sessionStart: config.sessionStart,
+    sessionEnd: config.sessionEnd,
+    entryStart: config.entryStart,
+    lastEntryTime: config.lastEntryTime,
+    forceExitTime: config.forceExitTime,
+    maxHoldMinutes: config.maximumHoldMinutes,
+    minimumExitScore: config.minimumExitScore,
+  });
   const { data: lastDecision } = await db
     .from("automated_decisions")
     .select("created_at,status")
@@ -252,7 +267,7 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
         60_000;
   for (const candidate of ranked) {
     if (!sessionOpen)
-      candidate.rejectionReasons.push("OUTSIDE_TRADING_SESSION");
+      candidate.rejectionReasons.push("OUTSIDE_INTRADAY_ENTRY_WINDOW");
     if (cooldown) candidate.rejectionReasons.push("TRADE_COOLDOWN_ACTIVE");
     if (!sessionOpen || cooldown) candidate.decision = "REJECTED";
   }
@@ -386,6 +401,7 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
           order_type: order.type,
           limit_price: order.limitPrice,
           stop_loss: order.stopLoss,
+          take_profit: order.takeProfit,
           source: "AUTO_TRADER",
           status: "QUEUED",
         })
@@ -529,10 +545,45 @@ async function submitProtectivePaperExit(ownerId, position, reason) {
     status: "CLAIMED",
     trigger_price: number(position.current_price),
   };
-  const { error: claimError } = await db
+  const { data: existingClaim } = await db
     .from("paper_position_exit_claims")
-    .insert(claim);
-  if (claimError) return; // Unique claim means another cycle/restart owns the exit.
+    .select("id,status")
+    .eq("user_id", ownerId)
+    .eq("broker_position_id", String(position.asset_id))
+    .maybeSingle();
+  if (existingClaim && existingClaim.status !== "FAILED") return;
+  if (existingClaim?.status === "FAILED") {
+    const reconciled = await json(
+      `${PAPER_URL}/v2/orders:by_client_order_id?client_order_id=${encodeURIComponent(clientOrderId)}`,
+      { headers: brokerHeaders() },
+    ).catch(() => null);
+    if (reconciled?.id) {
+      await db
+        .from("paper_position_exit_claims")
+        .update({
+          status: "SUBMITTED",
+          broker_order_id: String(reconciled.id),
+          error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingClaim.id);
+      return;
+    }
+  }
+  const claimResult = existingClaim
+    ? await db
+        .from("paper_position_exit_claims")
+        .update({
+          reason,
+          status: "CLAIMED",
+          trigger_price: number(position.current_price),
+          error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingClaim.id)
+        .eq("status", "FAILED")
+    : await db.from("paper_position_exit_claims").insert(claim);
+  if (claimResult.error) return; // Unique claim means another cycle/restart owns the exit.
   try {
     const brokerAdapter = {
       submitPaperOrder: async (order) => {
@@ -595,10 +646,17 @@ async function submitProtectivePaperExit(ownerId, position, reason) {
       },
     });
     await enqueueNotification(ownerId, {
-      type: reason === "STOP_LOSS" ? "STOP_LOSS_HIT" : "TAKE_PROFIT_HIT",
+      type:
+        reason === "STOP_LOSS"
+          ? "STOP_LOSS_HIT"
+          : reason === "TAKE_PROFIT"
+            ? "TAKE_PROFIT_HIT"
+            : "ORDER_SUBMITTED",
       category: "TRADE",
-      severity: reason === "STOP_LOSS" ? "WARNING" : "INFO",
-      title: `${String(position.symbol).toUpperCase()} ${reason === "STOP_LOSS" ? "Stop-Loss" : "Take-Profit"} Triggered`,
+      severity: ["STOP_LOSS", "RISK_EXIT", "EMERGENCY_EXIT"].includes(reason)
+        ? "WARNING"
+        : "INFO",
+      title: `${String(position.symbol).toUpperCase()} ${reason.replaceAll("_", " ")} Exit Submitted`,
       body: `A protective PAPER exit was submitted for ${quantity} ${String(position.symbol).toUpperCase()}.`,
       payload: {
         symbol: String(position.symbol).toUpperCase(),
@@ -649,11 +707,14 @@ async function synchronizeOwnerPortfolio(
     { data: platformOrders },
     { data: automatedDecisions },
     { data: executionRequests },
+    { data: autoConfigRow },
+    { data: ownerSystem },
+    { data: latestSignals },
   ] = await Promise.all([
     db
       .from("paper_positions")
       .select(
-        "broker_position_id,broker_order_id,entry_order_id,symbol,stop_loss,take_profit,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status",
+        "broker_position_id,broker_order_id,entry_order_id,symbol,stop_loss,take_profit,planned_stop,planned_target,protection_status,protection_type,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status",
       )
       .eq("user_id", ownerId),
     db
@@ -676,10 +737,53 @@ async function synchronizeOwnerPortfolio(
       .limit(200),
     db
       .from("paper_execution_requests")
-      .select("id,order_id,client_order_id,status")
+      .select("id,order_id,client_order_id,status,stop_loss,take_profit")
       .eq("user_id", ownerId)
       .limit(250),
+    db
+      .from("auto_trader_config")
+      .select("*")
+      .eq("user_id", ownerId)
+      .maybeSingle(),
+    db
+      .from("system_state")
+      .select("emergency_stop_active,risk_state")
+      .eq("user_id", ownerId)
+      .maybeSingle(),
+    db
+      .from("strategy_signals")
+      .select("symbol,strategy_name,direction,score,reasoning,evaluated_at")
+      .eq("user_id", ownerId)
+      .order("evaluated_at", { ascending: false })
+      .limit(250),
   ]);
+  const autoConfig = autoConfigRow ? mapAutoConfig(autoConfigRow) : null;
+  const autoSchedule = autoConfig
+    ? {
+        timezone: autoConfig.sessionTimezone,
+        sessionStart: autoConfig.sessionStart,
+        sessionEnd: autoConfig.sessionEnd,
+        entryStart: autoConfig.entryStart,
+        lastEntryTime: autoConfig.lastEntryTime,
+        forceExitTime: autoConfig.forceExitTime,
+        maxHoldMinutes: autoConfig.maximumHoldMinutes,
+        minimumExitScore: autoConfig.minimumExitScore,
+      }
+    : null;
+  const autoSession = autoSchedule
+    ? dayTraderSession(new Date(asOf), autoSchedule)
+    : "CLOSED";
+  const signalMap = new Map();
+  for (const signal of latestSignals ?? [])
+    if (
+      !signalMap.has(
+        `${String(signal.symbol).toUpperCase()}:${String(signal.strategy_name)}`,
+      )
+    )
+      signalMap.set(
+        `${String(signal.symbol).toUpperCase()}:${String(signal.strategy_name)}`,
+        signal,
+      );
   const legacyMap = new Map(
     (legacyPositions ?? []).map((row) => [
       String(row.symbol).toUpperCase(),
@@ -701,6 +805,9 @@ async function synchronizeOwnerPortfolio(
       request,
     ]),
   );
+  const executionRequestByOrder = new Map(
+    (executionRequests ?? []).map((request) => [request.order_id, request]),
+  );
   const orderMap = new Map();
   for (const brokerOrder of orders ?? []) {
     const platformOrder = platformOrderByClientId.get(
@@ -711,6 +818,18 @@ async function synchronizeOwnerPortfolio(
       orderMap.set(symbol, platformOrder);
     if (platformOrder) {
       const status = normalizePaperExecutionStatus(brokerOrder.status);
+      if (
+        autoSession === "CLOSING" &&
+        platformOrder.source === "AUTO_TRADER" &&
+        ["NEW", "ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED"].includes(status)
+      )
+        await json(
+          `${PAPER_URL}/v2/orders/${encodeURIComponent(String(brokerOrder.id))}`,
+          {
+            method: "DELETE",
+            headers: brokerHeaders(),
+          },
+        ).catch(() => null);
       const updatedAt = new Date().toISOString();
       const priorRequest = executionRequestMap.get(
         String(brokerOrder.client_order_id ?? ""),
@@ -789,6 +908,7 @@ async function synchronizeOwnerPortfolio(
     const automatedDecision = automatedDecisionMap.get(
       platformOrder?.automated_decision_id,
     );
+    const entryRequest = executionRequestByOrder.get(platformOrder?.id);
     const automatedStrategies = Array.isArray(automatedDecision?.strategies)
       ? automatedDecision.strategies
       : [];
@@ -806,6 +926,17 @@ async function synchronizeOwnerPortfolio(
               ).toUpperCase() === "MANUAL"
             ? "MANUAL"
             : "STANDARD");
+    const plannedStop =
+      control?.planned_stop ??
+      control?.stop_loss ??
+      entryRequest?.stop_loss ??
+      null;
+    const plannedTarget =
+      control?.planned_target ??
+      control?.take_profit ??
+      entryRequest?.take_profit ??
+      null;
+    const protectedPosition = plannedStop != null && plannedTarget != null;
     const { data: synchronizedPosition } = await db
       .from("paper_positions")
       .upsert(
@@ -820,8 +951,18 @@ async function synchronizeOwnerPortfolio(
           market_value: Math.abs(number(position.market_value)),
           unrealized_pl: number(position.unrealized_pl),
           unrealized_pl_pct: number(position.unrealized_plpc) * 100,
-          stop_loss: control?.stop_loss ?? null,
-          take_profit: control?.take_profit ?? null,
+          stop_loss: control?.stop_loss ?? entryRequest?.stop_loss ?? null,
+          take_profit:
+            control?.take_profit ?? entryRequest?.take_profit ?? null,
+          planned_stop: plannedStop,
+          planned_target: plannedTarget,
+          protection_status: protectedPosition ? "PROTECTED" : "UNPROTECTED",
+          protection_type: protectedPosition ? "WORKER_MONITORED" : null,
+          protection_verified_at: asOf,
+          maximum_hold_minutes:
+            tradeOrigin === "AUTO_TRADER"
+              ? autoConfig?.maximumHoldMinutes
+              : null,
           strategy_name:
             control?.strategy_name ??
             (automatedStrategies.length
@@ -857,19 +998,64 @@ async function synchronizeOwnerPortfolio(
     const price = number(position.current_price);
     const isLong = String(position.side) !== "short";
     const stopTriggered =
-      control?.stop_loss != null &&
-      (isLong
-        ? price <= number(control.stop_loss)
-        : price >= number(control.stop_loss));
+      plannedStop != null &&
+      (isLong ? price <= number(plannedStop) : price >= number(plannedStop));
     const targetTriggered =
-      control?.take_profit != null &&
+      plannedTarget != null &&
       (isLong
-        ? price >= number(control.take_profit)
-        : price <= number(control.take_profit));
-    if (stopTriggered)
-      await submitProtectivePaperExit(ownerId, position, "STOP_LOSS");
-    else if (targetTriggered)
-      await submitProtectivePaperExit(ownerId, position, "TAKE_PROFIT");
+        ? price >= number(plannedTarget)
+        : price <= number(plannedTarget));
+    let exitReason = stopTriggered
+      ? "STOP_LOSS"
+      : targetTriggered
+        ? "TAKE_PROFIT"
+        : null;
+    if (tradeOrigin === "AUTO_TRADER" && autoConfig) {
+      const signal = signalMap.get(
+        `${String(position.symbol).toUpperCase()}:${String(control?.strategy_name ?? "Combined Opportunity Engine")}`,
+      );
+      exitReason = evaluateIntradayExit({
+        now: new Date(asOf),
+        openedAt: control?.opened_at ?? asOf,
+        schedule: autoSchedule,
+        stopTriggered,
+        targetTriggered,
+        emergencyStop: Boolean(ownerSystem?.emergency_stop_active),
+        riskExit: ownerSystem?.risk_state === "LOCKED",
+        originalDirection: String(position.side) === "short" ? "SELL" : "BUY",
+        currentDirection: signal?.direction,
+        currentScore: signal?.score == null ? null : number(signal.score),
+        strategyValid: signal
+          ? !/INVALID|FAILED|NO VALID DATA/i.test(
+              String(signal.reasoning ?? ""),
+            )
+          : undefined,
+      });
+      if (
+        isOvernightViolation(
+          control?.opened_at ?? asOf,
+          new Date(asOf),
+          autoConfig.sessionTimezone,
+        )
+      )
+        exitReason = "END_OF_SESSION";
+    }
+    if (
+      !protectedPosition &&
+      ["AUTO_TRADER", "BIG_MONEY"].includes(tradeOrigin)
+    )
+      await enqueueNotification(ownerId, {
+        type: "PROTECTIVE_EXIT_FAILURE",
+        category: "RISK",
+        severity: "CRITICAL",
+        title: `${String(position.symbol).toUpperCase()} PAPER Position Unprotected`,
+        body: "Expected stop/target protection is missing. Worker monitoring remains active and owner attention is required.",
+        payload: { symbol: String(position.symbol).toUpperCase(), tradeOrigin },
+        deepLink: "/?section=Portfolio",
+        dedupeKey: `protection:missing:${ownerId}:${id}`,
+      });
+    if (exitReason)
+      await submitProtectivePaperExit(ownerId, position, exitReason);
   }
   for (const prior of controls ?? [])
     if (!openIds.includes(prior.broker_position_id)) {

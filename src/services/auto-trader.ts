@@ -208,6 +208,7 @@ export class AutoTraderEngine {
       type: "LIMIT",
       limitPrice: entry,
       stopLoss: stop,
+      takeProfit: target,
       source: "AUTO_TRADER",
       mode: "PAPER",
       confirmed: true,

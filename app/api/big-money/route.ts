@@ -399,6 +399,7 @@ async function approve(
         type: string;
         limitPrice?: number;
         stopLoss?: number;
+        takeProfit?: number;
         clientOrderId: string;
       }) => {
         const { data: platformOrder, error: orderError } = await supabase
@@ -432,6 +433,7 @@ async function approve(
             order_type: order.type,
             limit_price: order.limitPrice,
             stop_loss: order.stopLoss,
+            take_profit: order.takeProfit,
             source: "BIG_MONEY",
             status: "QUEUED",
           })
@@ -479,6 +481,7 @@ async function approve(
         type: "LIMIT",
         limitPrice: quote.last,
         stopLoss: Number(rec.stop_loss),
+        takeProfit: Number(rec.take_profit),
         source: "BIG_MONEY",
         mode: "PAPER",
         confirmed: true,
