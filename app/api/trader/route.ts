@@ -267,10 +267,20 @@ export async function POST(request: Request) {
     const updated = await admin
       .from("auto_trader_config")
       .update({ paper_test_mode: enable, updated_at: new Date().toISOString() })
-      .eq("user_id", user.id);
-    if (updated.error)
+      .eq("user_id", user.id)
+      .select("user_id,paper_test_mode")
+      .single();
+    if (updated.error || updated.data?.paper_test_mode !== enable)
       return NextResponse.json(
-        { error: "PAPER_TEST_UPDATE_FAILED" },
+        {
+          error: "PAPER_TEST_UPDATE_FAILED",
+          persistenceTrace: {
+            submittedValue: enable,
+            persistedValue: updated.data?.paper_test_mode ?? null,
+            column: "paper_test_mode",
+            conflictKey: "user_id",
+          },
+        },
         { status: 503 },
       );
     await admin.from("audit_events").insert({
@@ -288,6 +298,13 @@ export async function POST(request: Request) {
       paperTestMode: enable,
       confirmed: true,
       liveLocked: true,
+      persistenceTrace: {
+        submittedValue: enable,
+        persistedValue: updated.data.paper_test_mode,
+        reloadedValue: updated.data.paper_test_mode,
+        column: "paper_test_mode",
+        conflictKey: "user_id",
+      },
     });
   }
   if (body.action && body.action !== "MESSAGE")

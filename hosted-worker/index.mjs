@@ -50,6 +50,7 @@ import {
   paperTestStatus,
   rankForTestCoverage,
 } from "../src/services/paper-automation-test.ts";
+import { normalizeDatabaseTime } from "../src/services/config-time.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
@@ -156,12 +157,12 @@ const mapAutoConfig = (row) => ({
   minimumHistoricalScore: number(row.minimum_historical_score ?? 0),
   longEnabled: row.long_enabled !== false,
   shortEnabled: Boolean(row.short_enabled),
-  sessionStart: String(row.session_start ?? "09:30"),
-  sessionEnd: String(row.session_end ?? "16:00"),
+  sessionStart: normalizeDatabaseTime(row.session_start, "09:30"),
+  sessionEnd: normalizeDatabaseTime(row.session_end, "16:00"),
   sessionTimezone: String(row.session_timezone ?? "America/New_York"),
-  entryStart: String(row.entry_start ?? "09:35"),
-  lastEntryTime: String(row.last_entry_time ?? "15:15"),
-  forceExitTime: String(row.force_exit_time ?? "15:50"),
+  entryStart: normalizeDatabaseTime(row.entry_start, "09:35"),
+  lastEntryTime: normalizeDatabaseTime(row.last_entry_time, "15:15"),
+  forceExitTime: normalizeDatabaseTime(row.force_exit_time, "15:50"),
   maximumHoldMinutes:
     row.maximum_hold_minutes == null ? null : number(row.maximum_hold_minutes),
   minimumExitScore: number(row.minimum_exit_score ?? 45),
@@ -2557,6 +2558,11 @@ async function cycle() {
         dedupeKey: `auto-cycle-failed:${startedAt.slice(0, 13)}`,
       });
     }
+    const { data: persistedWorkerConfig } = await db
+      .from("auto_trader_config")
+      .select("paper_test_mode,paper_test_target_auto_positions")
+      .eq("user_id", owner.id)
+      .maybeSingle();
     const metadata = {
       accountStatus: account?.status ?? "UNKNOWN",
       positionCount: positions?.length ?? 0,
@@ -2565,6 +2571,10 @@ async function cycle() {
       marketData: "ALPACA_IEX",
       broker: "ALPACA_PAPER",
       autoTrader: autoTraderPermitted ? "SCHEDULED" : "PAUSED",
+      paperTestMode: persistedWorkerConfig?.paper_test_mode === true,
+      paperTestTargetAutoPositions: number(
+        persistedWorkerConfig?.paper_test_target_auto_positions ?? 8,
+      ),
       safety: "LIVE_LOCKED",
     };
     await db.from("trading_worker_heartbeats").upsert(

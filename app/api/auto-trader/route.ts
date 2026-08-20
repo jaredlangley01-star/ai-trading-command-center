@@ -24,6 +24,7 @@ import { createPaperMarketData } from "@/src/services/market-data/factory";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
 import { CombinedOpportunityEngine } from "@/src/services/strategies/combined-opportunity-engine";
 import { TradePermissionService } from "@/src/services/trade-permission";
+import { normalizeDatabaseTime } from "@/src/services/config-time";
 
 const assets: Record<string, Asset> = Object.fromEntries(
   [
@@ -74,12 +75,12 @@ const mapConfig = (row: Record<string, unknown> | null): AutoTraderConfig =>
         minimumHistoricalScore: Number(row.minimum_historical_score),
         longEnabled: Boolean(row.long_enabled),
         shortEnabled: Boolean(row.short_enabled),
-        sessionStart: String(row.session_start ?? "09:30"),
-        sessionEnd: String(row.session_end ?? "16:00"),
+        sessionStart: normalizeDatabaseTime(row.session_start, "09:30"),
+        sessionEnd: normalizeDatabaseTime(row.session_end, "16:00"),
         sessionTimezone: String(row.session_timezone ?? "America/New_York"),
-        entryStart: String(row.entry_start ?? "09:35"),
-        lastEntryTime: String(row.last_entry_time ?? "15:15"),
-        forceExitTime: String(row.force_exit_time ?? "15:50"),
+        entryStart: normalizeDatabaseTime(row.entry_start, "09:35"),
+        lastEntryTime: normalizeDatabaseTime(row.last_entry_time, "15:15"),
+        forceExitTime: normalizeDatabaseTime(row.force_exit_time, "15:50"),
         maximumHoldMinutes:
           row.maximum_hold_minutes == null
             ? null
@@ -296,6 +297,19 @@ export async function GET() {
         }),
         {},
       ),
+      persistenceTrace: {
+        reloadedValue: mapConfig(config.data).paperTestMode,
+        workerValue:
+          typeof heartbeat.data?.metadata?.paperTestMode === "boolean"
+            ? heartbeat.data.metadata.paperTestMode
+            : null,
+        targetReloaded: mapConfig(config.data).paperTestTargetAutoPositions,
+        targetWorker:
+          typeof heartbeat.data?.metadata?.paperTestTargetAutoPositions ===
+          "number"
+            ? heartbeat.data.metadata.paperTestTargetAutoPositions
+            : null,
+      },
     },
   });
 }
@@ -323,10 +337,52 @@ export async function POST(request: Request) {
       );
     try {
       const persisted = await upsertConfig(supabase, user.id, body.config);
+      const [
+        { data: reloaded, error: reloadError },
+        { count: ownerRowCount },
+        { data: worker },
+      ] = await Promise.all([
+        supabase
+          .from("auto_trader_config")
+          .select("*")
+          .eq("user_id", user.id)
+          .single(),
+        supabase
+          .from("auto_trader_config")
+          .select("user_id", { count: "exact", head: true })
+          .eq("user_id", user.id),
+        supabase
+          .from("trading_worker_heartbeats")
+          .select("metadata,last_seen_at")
+          .eq("user_id", user.id)
+          .order("last_seen_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (reloadError || !reloaded)
+        throw new Error(reloadError?.message ?? "CONFIG_RELOAD_FAILED");
+      const reloadedConfig = mapConfig(reloaded);
+      if (reloadedConfig.paperTestMode !== body.config.paperTestMode)
+        throw new Error("PAPER_TEST_MODE_RELOAD_MISMATCH");
+      if (ownerRowCount !== 1)
+        throw new Error("OWNER_CONFIG_ROW_COUNT_INVALID");
       return NextResponse.json({
-        config: persisted,
+        config: reloadedConfig,
         persisted: true,
         mode: "PAPER",
+        persistenceTrace: {
+          submittedValue: body.config.paperTestMode,
+          persistedValue: persisted.paperTestMode,
+          reloadedValue: reloadedConfig.paperTestMode,
+          workerValue:
+            typeof worker?.metadata?.paperTestMode === "boolean"
+              ? worker.metadata.paperTestMode
+              : null,
+          ownerRowCount,
+          column: "paper_test_mode",
+          conflictKey: "user_id",
+          workerLastSeen: worker?.last_seen_at ?? null,
+        },
       });
     } catch (error) {
       return NextResponse.json(
@@ -376,10 +432,8 @@ export async function POST(request: Request) {
       );
     const { error: configError } = await supabase
       .from("auto_trader_config")
-      .upsert(
-        { user_id: user.id, enabled: body.action === "RESUME" },
-        { onConflict: "user_id" },
-      );
+      .update({ enabled: body.action === "RESUME" })
+      .eq("user_id", user.id);
     const { error: stateError } = await supabase.from("system_state").upsert(
       {
         user_id: user.id,
