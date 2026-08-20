@@ -168,7 +168,7 @@ const mapAutoConfig = (row) => ({
   strategyHealthMinimumSample: number(row.strategy_health_minimum_sample ?? 20),
   cooldownMinutes: number(row.cooldown_minutes ?? 60),
   lossCooldownMinutes: number(row.loss_cooldown_minutes ?? 240),
-  paperTestMode: Boolean(row.paper_test_mode),
+  paperTestMode: row.paper_test_mode === true,
   paperTestTargetAutoPositions: number(
     row.paper_test_target_auto_positions ?? 8,
   ),

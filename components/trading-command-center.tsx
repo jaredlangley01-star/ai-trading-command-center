@@ -876,6 +876,7 @@ function BigMoneyWorkspace({ emergencyLocked }: { emergencyLocked: boolean }) {
       });
       const result = (await response.json()) as {
         error?: string;
+        detail?: string;
         status?: string;
       };
       setMessage(
@@ -1411,13 +1412,15 @@ function AutoTraderWorkspace({
       });
       const result = (await response.json()) as {
         error?: string;
+        detail?: string;
         status?: string;
         reason?: string;
       };
       setMessage(
         response.ok
           ? (result.reason ?? `${actionName} completed in PAPER mode.`)
-          : (result.error ?? "Auto Trader action rejected."),
+          : [result.error, result.detail].filter(Boolean).join(": ") ||
+              "Auto Trader action rejected.",
       );
       await load();
     } catch {

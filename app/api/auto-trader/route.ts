@@ -90,7 +90,7 @@ const mapConfig = (row: Record<string, unknown> | null): AutoTraderConfig =>
         ),
         cooldownMinutes: Number(row.cooldown_minutes),
         lossCooldownMinutes: Number(row.loss_cooldown_minutes),
-        paperTestMode: Boolean(row.paper_test_mode),
+        paperTestMode: row.paper_test_mode === true,
         paperTestTargetAutoPositions: Number(
           row.paper_test_target_auto_positions ?? 8,
         ),
@@ -200,6 +200,16 @@ export async function GET() {
       .eq("paper_test_mode", true)
       .limit(5000),
   ]);
+  if (config.error)
+    return NextResponse.json(
+      {
+        error: "AUTO_TRADER_CONFIG_LOAD_FAILED",
+        detail: config.error.message,
+        requiredMigration:
+          "202608200003_trade_018_1_paper_test_persistence_hotfix",
+      },
+      { status: 503 },
+    );
   const authoritativeStatus = system.data?.emergency_stop_active
     ? "LOCKED"
     : (system.data?.auto_trader_status ?? "PAUSED");
@@ -311,8 +321,25 @@ export async function POST(request: Request) {
         { error: "Invalid Auto Trader configuration." },
         { status: 400 },
       );
-    await upsertConfig(supabase, user.id, body.config);
-    return NextResponse.json({ config: body.config, mode: "PAPER" });
+    try {
+      const persisted = await upsertConfig(supabase, user.id, body.config);
+      return NextResponse.json({
+        config: persisted,
+        persisted: true,
+        mode: "PAPER",
+      });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error: "AUTO_TRADER_CONFIG_PERSISTENCE_FAILED",
+          detail:
+            error instanceof Error ? error.message : "UNKNOWN_DATABASE_ERROR",
+          requiredMigration:
+            "202608200003_trade_018_1_paper_test_persistence_hotfix",
+        },
+        { status: 503 },
+      );
+    }
   }
   if (body.action === "PAUSE" || body.action === "RESUME") {
     const [{ data: system }, { data: storedConfig }] = await Promise.all([
@@ -720,54 +747,85 @@ async function upsertConfig(
   userId: string,
   config: AutoTraderConfig,
 ) {
-  await supabase.from("auto_trader_config").upsert(
-    {
-      user_id: userId,
-      enabled: config.enabled,
-      capital_allocation: config.capitalAllocation,
-      maximum_trade_size: config.maximumTradeSize,
-      maximum_risk_per_trade: config.maximumRiskPerTrade,
-      daily_loss_limit: config.dailyLossLimit,
-      daily_profit_target: config.dailyProfitTarget,
-      maximum_trades_per_day: config.maximumTradesPerDay,
-      maximum_concurrent_positions: config.maximumConcurrentPositions,
-      minimum_strategy_score: config.minimumStrategyScore,
-      allowed_strategies: config.allowedStrategies,
-      allowed_assets: config.allowedAssets,
-      risk_profile: config.riskProfile,
-      maximum_portfolio_exposure: config.maximumPortfolioExposure,
-      minimum_opportunity_score: config.minimumOpportunityScore,
-      minimum_confidence: config.minimumConfidence,
-      minimum_historical_score: config.minimumHistoricalScore,
-      long_enabled: config.longEnabled,
-      short_enabled: config.shortEnabled,
-      session_start: config.sessionStart,
-      session_end: config.sessionEnd,
-      session_timezone: config.sessionTimezone,
-      entry_start: config.entryStart,
-      last_entry_time: config.lastEntryTime,
-      force_exit_time: config.forceExitTime,
-      maximum_hold_minutes: config.maximumHoldMinutes,
-      minimum_exit_score: config.minimumExitScore,
-      strategy_health_minimum_sample: config.strategyHealthMinimumSample,
-      cooldown_minutes: config.cooldownMinutes,
-      loss_cooldown_minutes: config.lossCooldownMinutes,
-      paper_test_mode: config.paperTestMode,
-      paper_test_target_auto_positions: config.paperTestTargetAutoPositions,
-      paper_big_money_test_mode: config.paperBigMoneyTestMode,
-      paper_test_target_big_money_positions:
-        config.paperTestTargetBigMoneyPositions,
-      paper_big_money_auto_approve_test: config.paperBigMoneyAutoApproveTest,
-      paper_test_min_opportunity_score: config.paperTestMinimumOpportunityScore,
-      paper_test_min_confidence: config.paperTestMinimumConfidence,
-      paper_test_max_position_size: config.paperTestMaximumPositionSize,
-      paper_test_max_risk_per_trade: config.paperTestMaximumRiskPerTrade,
-      paper_test_max_daily_trades: config.paperTestMaximumDailyTrades,
-      paper_test_universe: config.paperTestUniverse,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  const { data, error } = await supabase
+    .from("auto_trader_config")
+    .upsert(
+      {
+        user_id: userId,
+        enabled: config.enabled,
+        capital_allocation: config.capitalAllocation,
+        maximum_trade_size: config.maximumTradeSize,
+        maximum_risk_per_trade: config.maximumRiskPerTrade,
+        daily_loss_limit: config.dailyLossLimit,
+        daily_profit_target: config.dailyProfitTarget,
+        maximum_trades_per_day: config.maximumTradesPerDay,
+        maximum_concurrent_positions: config.maximumConcurrentPositions,
+        minimum_strategy_score: config.minimumStrategyScore,
+        allowed_strategies: config.allowedStrategies,
+        allowed_assets: config.allowedAssets,
+        risk_profile: config.riskProfile,
+        maximum_portfolio_exposure: config.maximumPortfolioExposure,
+        minimum_opportunity_score: config.minimumOpportunityScore,
+        minimum_confidence: config.minimumConfidence,
+        minimum_historical_score: config.minimumHistoricalScore,
+        long_enabled: config.longEnabled,
+        short_enabled: config.shortEnabled,
+        session_start: config.sessionStart,
+        session_end: config.sessionEnd,
+        session_timezone: config.sessionTimezone,
+        entry_start: config.entryStart,
+        last_entry_time: config.lastEntryTime,
+        force_exit_time: config.forceExitTime,
+        maximum_hold_minutes: config.maximumHoldMinutes,
+        minimum_exit_score: config.minimumExitScore,
+        strategy_health_minimum_sample: config.strategyHealthMinimumSample,
+        cooldown_minutes: config.cooldownMinutes,
+        loss_cooldown_minutes: config.lossCooldownMinutes,
+        paper_test_mode: config.paperTestMode,
+        paper_test_target_auto_positions: config.paperTestTargetAutoPositions,
+        paper_big_money_test_mode: config.paperBigMoneyTestMode,
+        paper_test_target_big_money_positions:
+          config.paperTestTargetBigMoneyPositions,
+        paper_big_money_auto_approve_test: config.paperBigMoneyAutoApproveTest,
+        paper_test_min_opportunity_score:
+          config.paperTestMinimumOpportunityScore,
+        paper_test_min_confidence: config.paperTestMinimumConfidence,
+        paper_test_max_position_size: config.paperTestMaximumPositionSize,
+        paper_test_max_risk_per_trade: config.paperTestMaximumRiskPerTrade,
+        paper_test_max_daily_trades: config.paperTestMaximumDailyTrades,
+        paper_test_universe: config.paperTestUniverse,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    )
+    .select("*")
+    .single();
+  if (error || !data)
+    throw new Error(error?.message ?? "CONFIG_WRITE_NOT_RETURNED");
+  const persisted = mapConfig(data);
+  const testFieldsMatch =
+    persisted.paperTestMode === config.paperTestMode &&
+    persisted.paperTestTargetAutoPositions ===
+      config.paperTestTargetAutoPositions &&
+    persisted.paperBigMoneyTestMode === config.paperBigMoneyTestMode &&
+    persisted.paperTestTargetBigMoneyPositions ===
+      config.paperTestTargetBigMoneyPositions &&
+    persisted.paperBigMoneyAutoApproveTest ===
+      config.paperBigMoneyAutoApproveTest &&
+    persisted.paperTestMinimumOpportunityScore ===
+      config.paperTestMinimumOpportunityScore &&
+    persisted.paperTestMinimumConfidence ===
+      config.paperTestMinimumConfidence &&
+    persisted.paperTestMaximumPositionSize ===
+      config.paperTestMaximumPositionSize &&
+    persisted.paperTestMaximumRiskPerTrade ===
+      config.paperTestMaximumRiskPerTrade &&
+    persisted.paperTestMaximumDailyTrades ===
+      config.paperTestMaximumDailyTrades &&
+    JSON.stringify(persisted.paperTestUniverse) ===
+      JSON.stringify(config.paperTestUniverse);
+  if (!testFieldsMatch) throw new Error("CONFIG_WRITE_VERIFICATION_FAILED");
+  return persisted;
 }
 
 function validConfig(config: AutoTraderConfig) {
@@ -808,6 +866,9 @@ function validConfig(config: AutoTraderConfig) {
     config.paperTestMinimumOpportunityScore <= 100 &&
     config.paperTestMinimumConfidence >= 0 &&
     config.paperTestMinimumConfidence <= 100 &&
+    config.paperTestMaximumPositionSize > 0 &&
+    config.paperTestMaximumRiskPerTrade > 0 &&
+    config.paperTestMaximumDailyTrades > 0 &&
     config.paperTestUniverse.length > 0 &&
     config.paperTestUniverse.every((asset) => Boolean(assets[asset])) &&
     [

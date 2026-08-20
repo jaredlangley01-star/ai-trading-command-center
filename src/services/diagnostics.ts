@@ -30,6 +30,7 @@ export const REQUIRED_DIAGNOSTIC_MIGRATIONS = [
   "202608170002_trade_016_7_order_monitor",
   "202608200001_trade_017_intraday_trader",
   "202608200002_trade_018_paper_automation_stress",
+  "202608200003_trade_018_1_paper_test_persistence_hotfix",
 ] as const;
 
 export function findMissingDiagnosticMigrations(
