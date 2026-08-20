@@ -153,6 +153,17 @@ export interface AutoTraderConfig {
   strategyHealthMinimumSample: number;
   cooldownMinutes: number;
   lossCooldownMinutes: number;
+  paperTestMode: boolean;
+  paperTestTargetAutoPositions: number;
+  paperBigMoneyTestMode: boolean;
+  paperTestTargetBigMoneyPositions: number;
+  paperBigMoneyAutoApproveTest: boolean;
+  paperTestMinimumOpportunityScore: number;
+  paperTestMinimumConfidence: number;
+  paperTestMaximumPositionSize: number;
+  paperTestMaximumRiskPerTrade: number;
+  paperTestMaximumDailyTrades: number;
+  paperTestUniverse: string[];
 }
 export type AutomatedDecisionStatus =
   | "EXECUTED"

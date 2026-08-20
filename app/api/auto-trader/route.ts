@@ -26,7 +26,20 @@ import { CombinedOpportunityEngine } from "@/src/services/strategies/combined-op
 import { TradePermissionService } from "@/src/services/trade-permission";
 
 const assets: Record<string, Asset> = Object.fromEntries(
-  ["AAPL", "NVDA", "MSFT", "AMZN"].map((symbol) => [
+  [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMD",
+    "AMZN",
+    "META",
+    "GOOGL",
+    "TSLA",
+    "SPY",
+    "QQQ",
+    "NFLX",
+    "IWM",
+  ].map((symbol) => [
     symbol,
     {
       id: symbol.toLowerCase(),
@@ -77,6 +90,33 @@ const mapConfig = (row: Record<string, unknown> | null): AutoTraderConfig =>
         ),
         cooldownMinutes: Number(row.cooldown_minutes),
         lossCooldownMinutes: Number(row.loss_cooldown_minutes),
+        paperTestMode: Boolean(row.paper_test_mode),
+        paperTestTargetAutoPositions: Number(
+          row.paper_test_target_auto_positions ?? 8,
+        ),
+        paperBigMoneyTestMode: Boolean(row.paper_big_money_test_mode),
+        paperTestTargetBigMoneyPositions: Number(
+          row.paper_test_target_big_money_positions ?? 2,
+        ),
+        paperBigMoneyAutoApproveTest: Boolean(
+          row.paper_big_money_auto_approve_test,
+        ),
+        paperTestMinimumOpportunityScore: Number(
+          row.paper_test_min_opportunity_score ?? 60,
+        ),
+        paperTestMinimumConfidence: Number(row.paper_test_min_confidence ?? 50),
+        paperTestMaximumPositionSize: Number(
+          row.paper_test_max_position_size ?? 1000,
+        ),
+        paperTestMaximumRiskPerTrade: Number(
+          row.paper_test_max_risk_per_trade ?? 100,
+        ),
+        paperTestMaximumDailyTrades: Number(
+          row.paper_test_max_daily_trades ?? 30,
+        ),
+        paperTestUniverse:
+          (row.paper_test_universe as string[]) ??
+          defaultAutoTraderConfig.paperTestUniverse,
       }
     : defaultAutoTraderConfig;
 
@@ -101,6 +141,8 @@ export async function GET() {
     heartbeat,
     candidates,
     recentOrders,
+    testPositions,
+    testTrades,
   ] = await Promise.all([
     supabase
       .from("auto_trader_config")
@@ -144,6 +186,19 @@ export async function GET() {
       .eq("source", "AUTO_TRADER")
       .order("queued_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("paper_positions")
+      .select(
+        "symbol,trade_origin,market_value,unrealized_pl,broker_position_id,protection_status",
+      )
+      .eq("user_id", user.id)
+      .in("status", ["OPEN", "EXIT_PENDING"]),
+    supabase
+      .from("completed_paper_trades")
+      .select("strategy_name,symbol,exit_reason")
+      .eq("user_id", user.id)
+      .eq("paper_test_mode", true)
+      .limit(5000),
   ]);
   const authoritativeStatus = system.data?.emergency_stop_active
     ? "LOCKED"
@@ -191,6 +246,46 @@ export async function GET() {
       lastOrderFilled:
         recentOrders.data?.find((order) => order.status === "FILLED")
           ?.filled_at ?? null,
+    },
+    paperTest: {
+      active: mapConfig(config.data).paperTestMode,
+      autoPositions: (testPositions.data ?? []).filter(
+        (position) =>
+          position.trade_origin === "AUTO_TRADER" &&
+          position.broker_position_id,
+      ).length,
+      bigMoneyPositions: (testPositions.data ?? []).filter(
+        (position) =>
+          position.trade_origin === "BIG_MONEY" && position.broker_position_id,
+      ).length,
+      totalActive: (testPositions.data ?? []).filter(
+        (position) => position.broker_position_id,
+      ).length,
+      capitalInMarket: (testPositions.data ?? []).reduce(
+        (sum, position) => sum + Math.abs(Number(position.market_value ?? 0)),
+        0,
+      ),
+      openPl: (testPositions.data ?? []).reduce(
+        (sum, position) => sum + Number(position.unrealized_pl ?? 0),
+        0,
+      ),
+      unprotected: (testPositions.data ?? []).filter(
+        (position) => position.protection_status === "UNPROTECTED",
+      ).length,
+      strategyCoverage: (testTrades.data ?? []).reduce<Record<string, number>>(
+        (coverage, trade) => ({
+          ...coverage,
+          [trade.strategy_name]: (coverage[trade.strategy_name] ?? 0) + 1,
+        }),
+        {},
+      ),
+      symbolCoverage: (testTrades.data ?? []).reduce<Record<string, number>>(
+        (coverage, trade) => ({
+          ...coverage,
+          [trade.symbol]: (coverage[trade.symbol] ?? 0) + 1,
+        }),
+        {},
+      ),
     },
   });
 }
@@ -657,6 +752,18 @@ async function upsertConfig(
       strategy_health_minimum_sample: config.strategyHealthMinimumSample,
       cooldown_minutes: config.cooldownMinutes,
       loss_cooldown_minutes: config.lossCooldownMinutes,
+      paper_test_mode: config.paperTestMode,
+      paper_test_target_auto_positions: config.paperTestTargetAutoPositions,
+      paper_big_money_test_mode: config.paperBigMoneyTestMode,
+      paper_test_target_big_money_positions:
+        config.paperTestTargetBigMoneyPositions,
+      paper_big_money_auto_approve_test: config.paperBigMoneyAutoApproveTest,
+      paper_test_min_opportunity_score: config.paperTestMinimumOpportunityScore,
+      paper_test_min_confidence: config.paperTestMinimumConfidence,
+      paper_test_max_position_size: config.paperTestMaximumPositionSize,
+      paper_test_max_risk_per_trade: config.paperTestMaximumRiskPerTrade,
+      paper_test_max_daily_trades: config.paperTestMaximumDailyTrades,
+      paper_test_universe: config.paperTestUniverse,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -693,6 +800,16 @@ function validConfig(config: AutoTraderConfig) {
       (config.maximumHoldMinutes >= 5 && config.maximumHoldMinutes <= 1440)) &&
     config.allowedAssets.every((asset) => Boolean(assets[asset])) &&
     config.allowedStrategies.length > 0 &&
+    config.paperTestTargetAutoPositions >= 1 &&
+    config.paperTestTargetBigMoneyPositions >= 0 &&
+    config.paperTestTargetBigMoneyPositions <=
+      config.maximumConcurrentPositions &&
+    config.paperTestMinimumOpportunityScore >= 0 &&
+    config.paperTestMinimumOpportunityScore <= 100 &&
+    config.paperTestMinimumConfidence >= 0 &&
+    config.paperTestMinimumConfidence <= 100 &&
+    config.paperTestUniverse.length > 0 &&
+    config.paperTestUniverse.every((asset) => Boolean(assets[asset])) &&
     [
       config.capitalAllocation,
       config.maximumTradeSize,

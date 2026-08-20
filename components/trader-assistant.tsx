@@ -42,10 +42,32 @@ export function TraderAssistant() {
     setSending(true);
     setError("");
     try {
+      const normalized = message.toLowerCase();
+      const wantsStart =
+        normalized.includes("start paper test mode") ||
+        normalized.includes("fill the auto trader test slots");
+      const wantsStop = normalized.includes("stop paper test mode");
+      if (
+        (wantsStart || wantsStop) &&
+        !window.confirm(
+          `${wantsStart ? "START" : "STOP"} PAPER AUTOMATION TEST MODE? This changes PAPER automation only; all risk gates remain active.`,
+        )
+      ) {
+        setSending(false);
+        return;
+      }
       const response = await fetch("/api/trader", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "MESSAGE", message }),
+        body: JSON.stringify(
+          wantsStart || wantsStop
+            ? {
+                action: "PAPER_TEST_CONTROL",
+                enabled: wantsStart,
+                confirmed: true,
+              }
+            : { action: "MESSAGE", message },
+        ),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error);
@@ -75,7 +97,8 @@ export function TraderAssistant() {
             </button>
           </header>
           <div className="trader-safety">
-            READ-ONLY · PAPER DATA · LIVE LOCKED · NO CHAT ORDER EXECUTION
+            VERIFIED PAPER DATA · CONFIRMED TEST CONTROLS ONLY · LIVE LOCKED ·
+            NO CHAT ORDER EXECUTION
           </div>
           <div className="trader-messages" aria-live="polite">
             {!messages.length && (

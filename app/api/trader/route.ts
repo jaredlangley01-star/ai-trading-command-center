@@ -59,7 +59,7 @@ async function ownerContext(userId: string) {
     db
       .from("auto_trader_config")
       .select(
-        "enabled,entry_start,last_entry_time,force_exit_time,session_timezone,strategy_health_minimum_sample",
+        "enabled,entry_start,last_entry_time,force_exit_time,session_timezone,strategy_health_minimum_sample,paper_test_mode,paper_test_target_auto_positions,paper_big_money_test_mode,paper_test_target_big_money_positions",
       )
       .eq("user_id", userId)
       .maybeSingle(),
@@ -237,6 +237,58 @@ export async function POST(request: Request) {
     return result.error
       ? NextResponse.json({ error: "DRAFT_FAILED" }, { status: 503 })
       : NextResponse.json(result.data, { status: 201 });
+  }
+  if (body.action === "PAPER_TEST_CONTROL") {
+    if (body.confirmed !== true)
+      return NextResponse.json(
+        { error: "OWNER_CONFIRMATION_REQUIRED" },
+        { status: 409 },
+      );
+    const enable = body.enabled === true;
+    const { data: system } = await admin
+      .from("system_state")
+      .select("mode,emergency_stop_active")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (
+      system?.mode !== "PAPER" ||
+      process.env.LIVE_TRADING_ENABLED === "true" ||
+      process.env.BROKER_ADAPTER !== "ALPACA_PAPER"
+    )
+      return NextResponse.json(
+        { error: "PAPER_TEST_LIVE_LOCKED" },
+        { status: 423 },
+      );
+    if (enable && system?.emergency_stop_active)
+      return NextResponse.json(
+        { error: "EMERGENCY_STOP_ACTIVE" },
+        { status: 423 },
+      );
+    const updated = await admin
+      .from("auto_trader_config")
+      .update({ paper_test_mode: enable, updated_at: new Date().toISOString() })
+      .eq("user_id", user.id);
+    if (updated.error)
+      return NextResponse.json(
+        { error: "PAPER_TEST_UPDATE_FAILED" },
+        { status: 503 },
+      );
+    await admin.from("audit_events").insert({
+      user_id: user.id,
+      action: enable
+        ? "PAPER_AUTOMATION_TEST_ENABLED"
+        : "PAPER_AUTOMATION_TEST_STOPPED",
+      metadata: {
+        confirmedByOwner: true,
+        environment: "PAPER",
+        source: "TRADER_CHAT",
+      },
+    });
+    return NextResponse.json({
+      paperTestMode: enable,
+      confirmed: true,
+      liveLocked: true,
+    });
   }
   if (body.action && body.action !== "MESSAGE")
     return NextResponse.json({ error: "READ_ONLY_ACTION" }, { status: 403 });

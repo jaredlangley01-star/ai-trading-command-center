@@ -1322,6 +1322,17 @@ function AutoTraderWorkspace({
     [systemStatus, setSystemStatus] = useState("PAUSED"),
     [workerAcknowledged, setWorkerAcknowledged] = useState(false),
     [activePositions, setActivePositions] = useState(0),
+    [paperTest, setPaperTest] = useState({
+      active: false,
+      autoPositions: 0,
+      bigMoneyPositions: 0,
+      totalActive: 0,
+      capitalInMarket: 0,
+      openPl: 0,
+      unprotected: 0,
+      strategyCoverage: {} as Record<string, number>,
+      symbolCoverage: {} as Record<string, number>,
+    }),
     [activity, setActivity] = useState({
       current: "PAUSED",
       lastScan: null as string | null,
@@ -1345,6 +1356,7 @@ function AutoTraderWorkspace({
       workerAcknowledged: boolean;
       activePositions: number;
       activity: typeof activity;
+      paperTest: typeof paperTest;
     };
     setConfig(data.config);
     setDaily(data.daily);
@@ -1353,6 +1365,7 @@ function AutoTraderWorkspace({
     setWorkerAcknowledged(data.workerAcknowledged);
     setActivePositions(data.activePositions);
     setActivity(data.activity);
+    setPaperTest(data.paperTest);
   };
   useEffect(() => {
     void fetch("/api/auto-trader")
@@ -1366,6 +1379,7 @@ function AutoTraderWorkspace({
           workerAcknowledged: boolean;
           activePositions: number;
           activity: typeof activity;
+          paperTest: typeof paperTest;
         }) => {
           setConfig(data.config);
           setDaily(data.daily);
@@ -1374,6 +1388,7 @@ function AutoTraderWorkspace({
           setWorkerAcknowledged(data.workerAcknowledged);
           setActivePositions(data.activePositions);
           setActivity(data.activity);
+          setPaperTest(data.paperTest);
         },
       )
       .catch(() => setMessage("Auto Trader state is unavailable."));
@@ -1457,6 +1472,42 @@ function AutoTraderWorkspace({
             . EXISTING POSITIONS REMAIN MANAGEABLE.
           </div>
         )}
+        <section
+          className={`ticket-state ${config.paperTestMode ? "warning" : ""}`}
+          aria-label="PAPER automation test status"
+        >
+          <b>
+            PAPER AUTOMATION TEST · {config.paperTestMode ? "ACTIVE" : "OFF"}
+          </b>
+          <span>
+            AUTO TRADER {paperTest.autoPositions} /{" "}
+            {Math.min(
+              config.paperTestTargetAutoPositions,
+              config.maximumConcurrentPositions,
+            )}{" "}
+            · BIG MONEY {paperTest.bigMoneyPositions} /{" "}
+            {config.paperTestTargetBigMoneyPositions} · TOTAL{" "}
+            {paperTest.totalActive}
+          </span>
+          <span>
+            CAPITAL IN MARKET {cash(paperTest.capitalInMarket)} · OPEN P/L{" "}
+            {cash(paperTest.openPl)}
+          </span>
+          <small>
+            {daySession === "OPEN"
+              ? "REAL ALPACA PAPER POSITIONS ONLY"
+              : "AUTO TRADER TEST · WAITING FOR SESSION"}
+            {paperTest.unprotected
+              ? ` · CRITICAL: ${paperTest.unprotected} UNPROTECTED`
+              : ""}
+          </small>
+          <small>
+            STRATEGY COVERAGE ·{" "}
+            {Object.entries(paperTest.strategyCoverage)
+              .map(([name, count]) => `${name}: ${count}`)
+              .join(" · ") || "NO COMPLETED TEST TRADES"}
+          </small>
+        </section>
         {status === "ACTIVE" && (
           <div className="ticket-state">
             <b>AUTO TRADER ACTIVE</b>
@@ -1607,6 +1658,19 @@ function AutoTraderWorkspace({
               ["maximumHoldMinutes", "MAXIMUM HOLD (MIN)"],
               ["minimumExitScore", "MINIMUM EXIT SCORE"],
               ["strategyHealthMinimumSample", "STRATEGY HEALTH MIN SAMPLE"],
+              ["paperTestTargetAutoPositions", "TEST TARGET AUTO POSITIONS"],
+              [
+                "paperTestTargetBigMoneyPositions",
+                "TEST TARGET BIG MONEY POSITIONS",
+              ],
+              [
+                "paperTestMinimumOpportunityScore",
+                "TEST MIN OPPORTUNITY SCORE",
+              ],
+              ["paperTestMinimumConfidence", "TEST MIN CONFIDENCE"],
+              ["paperTestMaximumPositionSize", "TEST MAX POSITION SIZE"],
+              ["paperTestMaximumRiskPerTrade", "TEST MAX RISK / TRADE"],
+              ["paperTestMaximumDailyTrades", "TEST MAX DAILY TRADES"],
             ] as Array<[keyof AutoTraderConfig, string]>
           ).map(([key, label]) => (
             <label key={key}>
@@ -1656,6 +1720,56 @@ function AutoTraderWorkspace({
               <option>BALANCED</option>
               <option>AGGRESSIVE</option>
             </select>
+          </label>
+          <label className="toggle-row">
+            <span>PAPER AUTOMATION TEST MODE</span>
+            <input
+              type="checkbox"
+              checked={config.paperTestMode}
+              onChange={(event) => {
+                if (
+                  event.target.checked &&
+                  !window.confirm(
+                    "ENABLE PAPER AUTOMATION TEST MODE? Real Alpaca PAPER orders may be queued only after all strategy, risk, permission, and broker checks.",
+                  )
+                )
+                  return;
+                setConfig({ ...config, paperTestMode: event.target.checked });
+              }}
+            />
+          </label>
+          <label className="toggle-row">
+            <span>BIG MONEY PAPER TEST MODE</span>
+            <input
+              type="checkbox"
+              checked={config.paperBigMoneyTestMode}
+              onChange={(event) =>
+                setConfig({
+                  ...config,
+                  paperBigMoneyTestMode: event.target.checked,
+                })
+              }
+            />
+          </label>
+          <label className="toggle-row">
+            <span>BIG MONEY TEST AUTO-APPROVAL</span>
+            <input
+              type="checkbox"
+              checked={config.paperBigMoneyAutoApproveTest}
+              onChange={(event) => {
+                if (
+                  event.target.checked &&
+                  !window.confirm(
+                    "ENABLE TEST AUTO-APPROVAL FOR QUALIFYING PAPER RECOMMENDATIONS? LIVE remains locked and all risk gates remain active.",
+                  )
+                )
+                  return;
+                setConfig({
+                  ...config,
+                  paperBigMoneyAutoApproveTest: event.target.checked,
+                });
+              }}
+            />
           </label>
           <label className="toggle-row">
             <span>LONG ENABLED</span>

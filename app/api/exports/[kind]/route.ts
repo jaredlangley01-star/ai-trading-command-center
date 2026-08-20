@@ -30,6 +30,8 @@ const journalColumns = [
   ["opportunity_score", "opportunity score"],
   ["broker_order_id", "broker order ID"],
   ["environment", "environment"],
+  ["paper_test_mode", "test-mode flag"],
+  ["test_slot", "test slot"],
 ] as const;
 const columns = (values: readonly (readonly [string, string])[]) =>
   values.map(([key, label]) => ({ key, label }));
@@ -49,7 +51,7 @@ export async function GET(
     const result = await db
       .from("completed_paper_trades")
       .select(
-        "id,symbol,classification,trade_origin,strategy_name,direction,quantity,entry_timestamp,entry_price,exit_timestamp,exit_price,stop_loss,take_profit,gross_pl,net_pl,return_pct,costs,entry_reason,exit_reason,risk_decision,broker_order_id,environment,metadata",
+        "id,symbol,classification,trade_origin,strategy_name,direction,quantity,entry_timestamp,entry_price,exit_timestamp,exit_price,stop_loss,take_profit,gross_pl,net_pl,return_pct,costs,entry_reason,exit_reason,risk_decision,broker_order_id,environment,paper_test_mode,test_slot,metadata",
       )
       .eq("user_id", user.id)
       .order("exit_timestamp", { ascending: false })
@@ -70,7 +72,7 @@ export async function GET(
     const result = await db
       .from("paper_execution_requests")
       .select(
-        "id,broker_order_id,symbol,direction,quantity,order_type,status,broker_submitted_at,broker_acknowledged_at,filled_at,error_message,source,queued_at,updated_at",
+        "id,broker_order_id,symbol,direction,quantity,order_type,status,broker_submitted_at,broker_acknowledged_at,filled_at,error_message,source,queued_at,updated_at,paper_test_mode,test_slot,candidate_rank,selection_reason,test_thresholds",
       )
       .eq("user_id", user.id)
       .order("queued_at", { ascending: false })
@@ -91,6 +93,11 @@ export async function GET(
       ["source", "origin"],
       ["queued_at", "queued timestamp"],
       ["updated_at", "updated timestamp"],
+      ["paper_test_mode", "test-mode flag"],
+      ["test_slot", "slot number"],
+      ["candidate_rank", "candidate ranking"],
+      ["selection_reason", "why selected/rejected"],
+      ["test_thresholds", "test thresholds used"],
     ]);
   } else if (kind === "fills") {
     const result = await db

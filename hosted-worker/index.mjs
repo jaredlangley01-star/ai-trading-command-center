@@ -43,6 +43,13 @@ import {
   evaluateIntradayExit,
   isOvernightViolation,
 } from "../src/services/intraday-lifecycle.ts";
+import {
+  assertPaperTestEnvironment,
+  availableTestSlots,
+  canAutoApproveBigMoneyTest,
+  paperTestStatus,
+  rankForTestCoverage,
+} from "../src/services/paper-automation-test.ts";
 
 const PAPER_URL = "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
@@ -161,6 +168,28 @@ const mapAutoConfig = (row) => ({
   strategyHealthMinimumSample: number(row.strategy_health_minimum_sample ?? 20),
   cooldownMinutes: number(row.cooldown_minutes ?? 60),
   lossCooldownMinutes: number(row.loss_cooldown_minutes ?? 240),
+  paperTestMode: Boolean(row.paper_test_mode),
+  paperTestTargetAutoPositions: number(
+    row.paper_test_target_auto_positions ?? 8,
+  ),
+  paperBigMoneyTestMode: Boolean(row.paper_big_money_test_mode),
+  paperTestTargetBigMoneyPositions: number(
+    row.paper_test_target_big_money_positions ?? 2,
+  ),
+  paperBigMoneyAutoApproveTest: Boolean(row.paper_big_money_auto_approve_test),
+  paperTestMinimumOpportunityScore: number(
+    row.paper_test_min_opportunity_score ?? 60,
+  ),
+  paperTestMinimumConfidence: number(row.paper_test_min_confidence ?? 50),
+  paperTestMaximumPositionSize: number(
+    row.paper_test_max_position_size ?? 1000,
+  ),
+  paperTestMaximumRiskPerTrade: number(
+    row.paper_test_max_risk_per_trade ?? 100,
+  ),
+  paperTestMaximumDailyTrades: number(row.paper_test_max_daily_trades ?? 30),
+  paperTestUniverse:
+    row.paper_test_universe ?? defaultAutoTraderConfig.paperTestUniverse,
 });
 
 async function processAutonomousOwner(ownerId, account, brokerPositions) {
@@ -192,10 +221,76 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
         .limit(100),
     ]);
   if (!configResult.data) return;
-  const config = mapAutoConfig(configResult.data),
+  let config = mapAutoConfig(configResult.data),
     system = systemResult.data;
   if (system?.auto_trader_status !== "ACTIVE" || system?.emergency_stop_active)
     return;
+  if (config.paperTestMode) {
+    assertPaperTestEnvironment({
+      mode: system?.mode,
+      brokerAdapter: process.env.BROKER_ADAPTER,
+      liveTradingEnabled: process.env.LIVE_TRADING_ENABLED,
+    });
+    config = {
+      ...config,
+      allowedAssets: config.paperTestUniverse,
+      minimumOpportunityScore: config.paperTestMinimumOpportunityScore,
+      minimumConfidence: config.paperTestMinimumConfidence,
+      maximumTradeSize: Math.min(
+        config.maximumTradeSize,
+        config.paperTestMaximumPositionSize,
+      ),
+      maximumRiskPerTrade: Math.min(
+        config.maximumRiskPerTrade,
+        config.paperTestMaximumRiskPerTrade,
+      ),
+      maximumTradesPerDay: Math.min(
+        config.maximumTradesPerDay,
+        config.paperTestMaximumDailyTrades,
+      ),
+    };
+  }
+  const [
+    { data: confirmedAuto },
+    { data: pendingAuto },
+    { data: completedCoverage },
+  ] = await Promise.all([
+    db
+      .from("paper_positions")
+      .select("symbol,broker_position_id,protection_status")
+      .eq("user_id", ownerId)
+      .eq("trade_origin", "AUTO_TRADER")
+      .in("status", ["OPEN", "EXIT_PENDING"]),
+    db
+      .from("paper_execution_requests")
+      .select("symbol")
+      .eq("user_id", ownerId)
+      .eq("source", "AUTO_TRADER")
+      .in("status", [
+        "QUEUED",
+        "SUBMITTING",
+        "SUBMITTED",
+        "ACCEPTED",
+        "PARTIALLY_FILLED",
+      ]),
+    db
+      .from("completed_paper_trades")
+      .select("strategy_name")
+      .eq("user_id", ownerId)
+      .eq("trade_origin", "AUTO_TRADER")
+      .eq("paper_test_mode", true),
+  ]);
+  const target = Math.min(
+    config.paperTestTargetAutoPositions,
+    config.maximumConcurrentPositions,
+  );
+  const slots = config.paperTestMode
+    ? availableTestSlots(
+        target,
+        (confirmedAuto ?? []).filter((item) => item.broker_position_id).length,
+        pendingAuto?.length ?? 0,
+      )
+    : 1;
   const latest = new Map();
   for (const snapshot of snapshotsResult.data ?? [])
     if (
@@ -240,7 +335,24 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
         snapshot.deterministic_analysis?.parts?.technical?.explanation ?? [],
     };
   });
-  const ranked = rankAutonomousCandidates(candidates, config);
+  let ranked = rankAutonomousCandidates(candidates, config);
+  if (config.paperTestMode) {
+    const coverage = {};
+    for (const trade of completedCoverage ?? [])
+      coverage[trade.strategy_name] = (coverage[trade.strategy_name] ?? 0) + 1;
+    ranked = rankForTestCoverage(ranked, coverage, [
+      ...brokerPositions.map((position) => String(position.symbol)),
+      ...(pendingAuto ?? []).map((request) => String(request.symbol)),
+    ]);
+  }
+  if (
+    config.paperTestMode &&
+    (confirmedAuto ?? []).some(
+      (item) => item.protection_status === "UNPROTECTED",
+    )
+  )
+    return;
+  if (slots === 0) return;
   const sessionOpen = canOpenIntradayEntry(new Date(), {
     timezone: config.sessionTimezone,
     sessionStart: config.sessionStart,
@@ -251,6 +363,55 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
     maxHoldMinutes: config.maximumHoldMinutes,
     minimumExitScore: config.minimumExitScore,
   });
+  if (config.paperTestMode) {
+    const status = paperTestStatus({
+      enabled: true,
+      sessionOpen,
+      autoConfirmed: (confirmedAuto ?? []).filter(
+        (item) => item.broker_position_id,
+      ).length,
+      autoTarget: target,
+    });
+    await db.from("paper_automation_test_cycles").upsert(
+      {
+        user_id: ownerId,
+        cycle_key: `stress:${ownerId}:${new Date().toISOString().slice(0, 16)}`,
+        status,
+        target_auto_positions: target,
+        confirmed_auto_positions: (confirmedAuto ?? []).filter(
+          (item) => item.broker_position_id,
+        ).length,
+        pending_auto_orders: pendingAuto?.length ?? 0,
+        target_big_money_positions: config.paperTestTargetBigMoneyPositions,
+        confirmed_big_money_positions:
+          brokerPositions.filter((position) => String(position.symbol)).length -
+          (confirmedAuto?.length ?? 0),
+        metrics: {
+          availableSlots: slots,
+          candidates: ranked.length,
+          safety: "LIVE_LOCKED",
+        },
+        strategy_coverage: Object.fromEntries(
+          (completedCoverage ?? []).map((trade) => [trade.strategy_name, true]),
+        ),
+        symbol_coverage: Object.fromEntries(
+          (confirmedAuto ?? []).map((position) => [position.symbol, true]),
+        ),
+      },
+      { onConflict: "user_id,cycle_key" },
+    );
+    if (status === "TARGET_REACHED")
+      await enqueueNotification(ownerId, {
+        type: "PAPER_TEST_TARGET_REACHED",
+        category: "TRADE",
+        severity: "INFO",
+        title: "PAPER Automation Test Target Reached",
+        body: `All ${target} confirmed Auto Trader PAPER slots are filled.`,
+        payload: { target, confirmedOnly: true },
+        deepLink: "/?section=Auto%20Trader",
+        dedupeKey: `paper-test-target:${new Date().toISOString().slice(0, 10)}:${target}`,
+      });
+  }
   const { data: lastDecision } = await db
     .from("automated_decisions")
     .select("created_at,status")
@@ -259,6 +420,7 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
     .limit(1)
     .maybeSingle();
   const cooldown =
+    !config.paperTestMode &&
     lastDecision &&
     Date.now() - Date.parse(lastDecision.created_at) <
       (lastDecision.status === "REJECTED"
@@ -404,6 +566,24 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
           take_profit: order.takeProfit,
           source: "AUTO_TRADER",
           status: "QUEUED",
+          paper_test_mode: config.paperTestMode,
+          test_slot: config.paperTestMode
+            ? (confirmedAuto?.length ?? 0) + (pendingAuto?.length ?? 0) + 1
+            : null,
+          candidate_rank: config.paperTestMode
+            ? ranked.indexOf(winner) + 1
+            : null,
+          selection_reason: config.paperTestMode
+            ? `Genuine eligible candidate; strategy coverage preference for ${winner.strategy}.`
+            : null,
+          test_thresholds: config.paperTestMode
+            ? {
+                opportunity: config.minimumOpportunityScore,
+                confidence: config.minimumConfidence,
+                maximumPositionSize: config.maximumTradeSize,
+                maximumRiskPerTrade: config.maximumRiskPerTrade,
+              }
+            : {},
         })
         .select("id,status")
         .single();
@@ -527,6 +707,211 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
     assetClass: "EQUITY",
     currency: "USD",
   });
+}
+
+async function processBigMoneyTestOwner(ownerId, account, brokerPositions) {
+  const [
+    { data: row },
+    { data: system },
+    { data: riskRow },
+    { data: recommendations },
+    { data: confirmed },
+  ] = await Promise.all([
+    db
+      .from("auto_trader_config")
+      .select("*")
+      .eq("user_id", ownerId)
+      .maybeSingle(),
+    db.from("system_state").select("*").eq("user_id", ownerId).maybeSingle(),
+    db
+      .from("risk_settings")
+      .select("settings")
+      .eq("user_id", ownerId)
+      .maybeSingle(),
+    db
+      .from("recommendations")
+      .select("*")
+      .eq("user_id", ownerId)
+      .eq("status", "PENDING")
+      .order("research_score", { ascending: false })
+      .limit(20),
+    db
+      .from("paper_positions")
+      .select("symbol,broker_position_id")
+      .eq("user_id", ownerId)
+      .eq("trade_origin", "BIG_MONEY")
+      .in("status", ["OPEN", "EXIT_PENDING"]),
+  ]);
+  if (!row) return;
+  const config = mapAutoConfig(row);
+  const settings = { ...defaultRiskSettings, ...(riskRow?.settings ?? {}) };
+  for (const rec of recommendations ?? []) {
+    const eligibility = canAutoApproveBigMoneyTest({
+      settings: {
+        enabled: config.paperTestMode,
+        targetAutoPositions: config.paperTestTargetAutoPositions,
+        bigMoneyEnabled: config.paperBigMoneyTestMode,
+        targetBigMoneyPositions: config.paperTestTargetBigMoneyPositions,
+        bigMoneyAutoApprove: config.paperBigMoneyAutoApproveTest,
+        minimumOpportunityScore: config.paperTestMinimumOpportunityScore,
+        minimumConfidence: config.paperTestMinimumConfidence,
+        maximumPositionSize: config.paperTestMaximumPositionSize,
+        maximumRiskPerTrade: config.paperTestMaximumRiskPerTrade,
+        maximumDailyTrades: config.paperTestMaximumDailyTrades,
+        universe: config.paperTestUniverse,
+      },
+      mode: system?.mode,
+      liveTradingEnabled: process.env.LIVE_TRADING_ENABLED === "true",
+      confirmedPositions: (confirmed ?? []).filter(
+        (item) => item.broker_position_id,
+      ).length,
+      recommendationStatus: rec.status,
+      researchScore: number(rec.research_score),
+      requiredScore: number(settings.bigMoneyApprovalThreshold),
+      researchAvailable: Boolean(rec.research_summary && rec.quote_timestamp),
+    });
+    if (!eligibility.allowed) continue;
+    assertPaperTestEnvironment({
+      mode: system?.mode,
+      brokerAdapter: process.env.BROKER_ADAPTER,
+      liveTradingEnabled: process.env.LIVE_TRADING_ENABLED,
+    });
+    if (Date.now() - Date.parse(String(rec.quote_timestamp)) > 5 * 60_000)
+      continue;
+    if (
+      brokerPositions.some(
+        (position) =>
+          String(position.symbol).toUpperCase() ===
+          String(rec.symbol).toUpperCase(),
+      )
+    )
+      continue;
+    const price = number(rec.current_price),
+      capital = Math.min(
+        number(rec.investment),
+        config.paperTestMaximumPositionSize,
+      );
+    if (
+      !(
+        price > 0 &&
+        capital > 0 &&
+        number(rec.stop_loss) > 0 &&
+        number(rec.take_profit) > 0
+      )
+    )
+      continue;
+    const state = {
+      mode: "PAPER",
+      autoTraderStatus: system?.auto_trader_status ?? "PAUSED",
+      riskState: system?.risk_state ?? "NORMAL",
+      emergencyStopActive: Boolean(system?.emergency_stop_active),
+    };
+    const context = {
+      requestedCapital: capital,
+      expectedPrice: price,
+      stopLoss: number(rec.stop_loss),
+      dailyProfitLoss: 0,
+      tradesToday: 0,
+      concurrentPositions: brokerPositions.length,
+      portfolioExposure: brokerPositions.reduce(
+        (sum, item) => sum + Math.abs(number(item.market_value)),
+        0,
+      ),
+      autoTraderExposure: 0,
+      assetExposure: 0,
+      portfolioValue: number(account.equity),
+      portfolioDrawdownPct: 0,
+      source: "BIG_MONEY",
+      recommendationScore: number(rec.research_score),
+      emergencyStopActive: state.emergencyStopActive,
+      systemLocked: state.riskState === "LOCKED",
+    };
+    const decision = await new ProductionRiskManager(settings).evaluateOrder(
+      context,
+    );
+    const permission = new TradePermissionService(state, settings);
+    if (decision.status !== "APPROVED" || !permission.canOpenTrade()) continue;
+    const clientOrderId = `big-money-test:${rec.id}:${rec.version}`;
+    const { data: existing } = await db
+      .from("paper_execution_requests")
+      .select("id")
+      .eq("user_id", ownerId)
+      .eq("client_order_id", clientOrderId)
+      .maybeSingle();
+    if (existing) continue;
+    const { data: order, error: orderError } = await db
+      .from("orders")
+      .insert({
+        user_id: ownerId,
+        recommendation_id: rec.id,
+        symbol: rec.symbol,
+        direction: rec.direction,
+        order_type: "LIMIT",
+        quantity: Math.max(1, Math.floor(capital / price)),
+        limit_price: price,
+        status: "DRAFT",
+        mode: "PAPER",
+        source: "BIG_MONEY",
+        classification: "BIG",
+        client_order_id: clientOrderId,
+      })
+      .select("id")
+      .single();
+    if (orderError || !order) continue;
+    const { data: queued, error: queueError } = await db
+      .from("paper_execution_requests")
+      .insert({
+        user_id: ownerId,
+        order_id: order.id,
+        client_order_id: clientOrderId,
+        symbol: rec.symbol,
+        direction: rec.direction,
+        quantity: Math.max(1, Math.floor(capital / price)),
+        order_type: "LIMIT",
+        limit_price: price,
+        stop_loss: rec.stop_loss,
+        take_profit: rec.take_profit,
+        source: "BIG_MONEY",
+        status: "QUEUED",
+        paper_test_mode: true,
+        selection_reason:
+          "TEST AUTO-APPROVAL: qualifying deterministic Big Money PAPER recommendation.",
+        test_thresholds: {
+          researchScore: settings.bigMoneyApprovalThreshold,
+          maximumPositionSize: config.paperTestMaximumPositionSize,
+        },
+      })
+      .select("id")
+      .single();
+    if (queueError || !queued) continue;
+    const now = new Date().toISOString();
+    await Promise.all([
+      db
+        .from("orders")
+        .update({ status: "QUEUED", updated_at: now })
+        .eq("id", order.id),
+      db
+        .from("recommendations")
+        .update({
+          status: "APPROVED",
+          approval_timestamp: now,
+          updated_at: now,
+        })
+        .eq("id", rec.id)
+        .eq("status", "PENDING"),
+      db.from("audit_events").insert({
+        user_id: ownerId,
+        action: "BIG_MONEY_TEST_AUTO_APPROVAL",
+        metadata: {
+          recommendationId: rec.id,
+          executionRequestId: queued.id,
+          environment: "PAPER",
+          riskDecision: decision.reason,
+        },
+      }),
+    ]);
+    break;
+  }
 }
 
 async function submitProtectivePaperExit(ownerId, position, reason) {
@@ -714,7 +1099,7 @@ async function synchronizeOwnerPortfolio(
     db
       .from("paper_positions")
       .select(
-        "broker_position_id,broker_order_id,entry_order_id,symbol,stop_loss,take_profit,planned_stop,planned_target,protection_status,protection_type,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status",
+        "broker_position_id,broker_order_id,entry_order_id,symbol,stop_loss,take_profit,planned_stop,planned_target,protection_status,protection_type,strategy_name,trade_origin,risk_decision_id,side,quantity,entry_price,opened_at,exit_reason,status,paper_test_mode,test_slot",
       )
       .eq("user_id", ownerId),
     db
@@ -737,7 +1122,9 @@ async function synchronizeOwnerPortfolio(
       .limit(200),
     db
       .from("paper_execution_requests")
-      .select("id,order_id,client_order_id,status,stop_loss,take_profit")
+      .select(
+        "id,order_id,client_order_id,status,stop_loss,take_profit,paper_test_mode,test_slot",
+      )
       .eq("user_id", ownerId)
       .limit(250),
     db
@@ -973,6 +1360,10 @@ async function synchronizeOwnerPortfolio(
                   ? "Combined Opportunity Engine"
                   : "Manual / External PAPER"),
           trade_origin: tradeOrigin,
+          paper_test_mode: Boolean(
+            control?.paper_test_mode ?? entryRequest?.paper_test_mode,
+          ),
+          test_slot: control?.test_slot ?? entryRequest?.test_slot ?? null,
           broker_order_id:
             control?.broker_order_id ?? platformOrder?.broker_order_id ?? null,
           entry_order_id: platformOrder?.id ?? control?.entry_order_id ?? null,
@@ -1138,6 +1529,8 @@ async function synchronizeOwnerPortfolio(
                   ? "PAPER_RISK_CONTROLS_APPLIED"
                   : String(closedPosition.risk_decision_id),
               environment: "PAPER",
+              paper_test_mode: Boolean(closedPosition.paper_test_mode),
+              test_slot: closedPosition.test_slot,
               metadata: {
                 brokerExecutionId: String(exitFill.id ?? exitFill.activity_id),
               },
@@ -2133,7 +2526,22 @@ async function cycle() {
       startedAt,
     );
     try {
-      await processAutonomousOwner(owner.id, account, positions);
+      const { data: stressConfig } = await db
+        .from("auto_trader_config")
+        .select(
+          "paper_test_mode,paper_test_target_auto_positions,maximum_concurrent_positions",
+        )
+        .eq("user_id", owner.id)
+        .maybeSingle();
+      const attempts = stressConfig?.paper_test_mode
+        ? Math.min(
+            number(stressConfig.paper_test_target_auto_positions ?? 8),
+            number(stressConfig.maximum_concurrent_positions ?? 8),
+          )
+        : 1;
+      for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1)
+        await processAutonomousOwner(owner.id, account, positions);
+      await processBigMoneyTestOwner(owner.id, account, positions);
     } catch (error) {
       await enqueueNotification(owner.id, {
         type: "RISK_MANAGER_WARNING",
