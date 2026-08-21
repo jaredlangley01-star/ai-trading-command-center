@@ -41,6 +41,49 @@ export const defaultPaperTestSettings: PaperTestSettings = {
   universe: defaultPaperTestUniverse,
 };
 
+export function applyPaperTestThresholds<
+  T extends {
+    paperTestMode: boolean;
+    paperTestUniverse: string[];
+    paperTestMinimumOpportunityScore: number;
+    paperTestMinimumConfidence: number;
+    paperTestMaximumPositionSize: number;
+    paperTestMaximumRiskPerTrade: number;
+    paperTestMaximumDailyTrades: number;
+    allowedAssets: string[];
+    minimumOpportunityScore: number;
+    minimumConfidence: number;
+    minimumStrategyScore: number;
+    maximumTradeSize: number;
+    maximumRiskPerTrade: number;
+    maximumTradesPerDay: number;
+  },
+>(config: T): T {
+  if (!config.paperTestMode) return config;
+  return {
+    ...config,
+    allowedAssets: config.paperTestUniverse,
+    minimumOpportunityScore: config.paperTestMinimumOpportunityScore,
+    minimumConfidence: config.paperTestMinimumConfidence,
+    minimumStrategyScore: Math.min(
+      config.minimumStrategyScore,
+      config.paperTestMinimumOpportunityScore,
+    ),
+    maximumTradeSize: Math.min(
+      config.maximumTradeSize,
+      config.paperTestMaximumPositionSize,
+    ),
+    maximumRiskPerTrade: Math.min(
+      config.maximumRiskPerTrade,
+      config.paperTestMaximumRiskPerTrade,
+    ),
+    maximumTradesPerDay: Math.min(
+      config.maximumTradesPerDay,
+      config.paperTestMaximumDailyTrades,
+    ),
+  };
+}
+
 export function assertPaperTestEnvironment(input: {
   mode?: string;
   brokerAdapter?: string;

@@ -19,6 +19,19 @@ type AlpacaSnapshot = {
   latestTrade?: { p?: number; t?: string };
 };
 
+export function newestAlpacaTimestamp(
+  quoteTimestamp?: string,
+  tradeTimestamp?: string,
+  fallback = new Date().toISOString(),
+) {
+  const timestamps = [quoteTimestamp, tradeTimestamp]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => ({ value, parsed: Date.parse(value) }))
+    .filter((value) => Number.isFinite(value.parsed))
+    .sort((left, right) => right.parsed - left.parsed);
+  return timestamps[0]?.value ?? fallback;
+}
+
 const sharedCache = new Map<string, CacheEntry<unknown>>();
 
 export class AlpacaMarketDataError extends Error {
@@ -64,7 +77,8 @@ export class AlpacaMarketDataService implements MarketDataService {
           "ALPACA_MALFORMED_RESPONSE",
           `Alpaca did not return a valid IEX quote for ${symbol}.`,
         );
-      const asOf = String(trade.t || quote.t || new Date().toISOString());
+      const receivedAt = new Date().toISOString();
+      const asOf = newestAlpacaTimestamp(quote.t, trade.t, receivedAt);
       this.lastUpdated = asOf;
       return {
         assetId: symbol.toLowerCase(),
@@ -77,6 +91,9 @@ export class AlpacaMarketDataService implements MarketDataService {
         isDelayed: false,
         provider: "ALPACA",
         feed: "IEX",
+        quoteAsOf: quote.t,
+        tradeAsOf: trade.t,
+        receivedAt,
       };
     });
   }

@@ -133,6 +133,10 @@ export class CombinedOpportunityEngine {
             ? "IBKR PAPER — DELAYED"
             : "IBKR PAPER DATA",
       marketDataTimestamp: snapshot.quote.asOf,
+      marketQuoteTimestamp: snapshot.quote.quoteAsOf,
+      marketTradeTimestamp: snapshot.quote.tradeAsOf,
+      marketDataReceivedAt: snapshot.quote.receivedAt,
+      marketBarTimestamp: snapshot.candles.at(-1)?.time,
       marketAnalysis: {
         bid: snapshot.quote.bid,
         ask: snapshot.quote.ask,

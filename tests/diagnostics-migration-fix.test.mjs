@@ -15,6 +15,7 @@ const trade0167 = "202608170002_trade_016_7_order_monitor";
 const trade017 = "202608200001_trade_017_intraday_trader";
 const trade018 = "202608200002_trade_018_paper_automation_stress";
 const trade0181 = "202608200003_trade_018_1_paper_test_persistence_hotfix";
+const trade0183 = "202608210001_trade_018_3_execution_recovery";
 
 test("exact production migration rows are recognized with the repair marker present", () => {
   assert.deepEqual(REQUIRED_DIAGNOSTIC_MIGRATIONS, [
@@ -26,6 +27,7 @@ test("exact production migration rows are recognized with the repair marker pres
     trade017,
     trade018,
     trade0181,
+    trade0183,
   ]);
   assert.deepEqual(
     findMissingDiagnosticMigrations([
@@ -38,6 +40,7 @@ test("exact production migration rows are recognized with the repair marker pres
       { version: trade017 },
       { version: trade018 },
       { version: trade0181 },
+      { version: trade0183 },
     ]),
     [],
   );
@@ -49,7 +52,16 @@ test("a genuinely missing required migration remains degraded", () => {
       { version: trade016 },
       { version: repair },
     ]),
-    [trade0164, trade0165, trade0166, trade0167, trade017, trade018, trade0181],
+    [
+      trade0164,
+      trade0165,
+      trade0166,
+      trade0167,
+      trade017,
+      trade018,
+      trade0181,
+      trade0183,
+    ],
   );
 });
 
@@ -68,6 +80,7 @@ test("migration comparison is exact and does not normalize returned versions", (
       trade017,
       trade018,
       trade0181,
+      trade0183,
     ],
   );
 });

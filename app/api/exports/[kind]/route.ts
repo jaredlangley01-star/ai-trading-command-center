@@ -103,14 +103,14 @@ export async function GET(
     const result = await db
       .from("paper_broker_fills")
       .select(
-        "broker_fill_id,broker_order_id,symbol,side,quantity,price,trade_origin,strategy_name,executed_at",
+        "broker_execution_id,broker_order_id,symbol,side,quantity,price,trade_origin,strategy_name,executed_at,paper_test_mode,test_slot",
       )
       .eq("user_id", user.id)
       .order("executed_at", { ascending: false })
       .limit(5000);
     rows = result.data ?? [];
     exportColumns = columns([
-      ["broker_fill_id", "fill ID"],
+      ["broker_execution_id", "fill ID"],
       ["broker_order_id", "broker order ID"],
       ["symbol", "symbol"],
       ["side", "side"],
@@ -119,6 +119,8 @@ export async function GET(
       ["trade_origin", "origin"],
       ["strategy_name", "strategy"],
       ["executed_at", "executed timestamp"],
+      ["paper_test_mode", "test-mode flag"],
+      ["test_slot", "slot number"],
     ]);
   } else if (kind === "strategies") {
     const [trades, config] = await Promise.all([

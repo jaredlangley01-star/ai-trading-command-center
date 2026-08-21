@@ -114,6 +114,10 @@ export interface CombinedOpportunity {
   timestamp: string;
   dataSource: string;
   marketDataTimestamp?: string;
+  marketQuoteTimestamp?: string;
+  marketTradeTimestamp?: string;
+  marketDataReceivedAt?: string;
+  marketBarTimestamp?: string;
   marketAnalysis: {
     bid: number;
     ask: number;
@@ -187,6 +191,17 @@ export interface AutomatedDecisionResult {
   executionSource: "ALPACA_PAPER" | "IBKR_PAPER" | "SIMULATED_PAPER" | "NONE";
   brokerOrderId?: string;
   timestamp: string;
+  marketDataAudit?: {
+    source: string;
+    barTimestamp: string | null;
+    quoteTimestamp: string | null;
+    tradeTimestamp: string | null;
+    workerReceivedAt: string;
+    candidateEvaluatedAt: string;
+    ageMs: number | null;
+    freshnessThresholdMs: number;
+    state: "FRESH" | "STALE" | "UNAVAILABLE";
+  };
 }
 export type MarketDataStatus =
   | "DISCONNECTED"
@@ -212,6 +227,9 @@ export interface MarketQuote {
   isDelayed: boolean;
   provider: "ALPACA" | "IBKR" | "DEMO";
   feed: string;
+  quoteAsOf?: string;
+  tradeAsOf?: string;
+  receivedAt?: string;
 }
 export interface TradeRecommendation {
   id: string;

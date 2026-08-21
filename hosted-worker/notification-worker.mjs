@@ -6,6 +6,7 @@ import {
   redactNotificationPayload,
   shouldDeliver,
 } from "../src/services/notifications/policy.ts";
+import { classifyWorkerHealth } from "../src/services/notifications/worker-health.ts";
 
 for (const name of ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
   if (!process.env[name]) throw new Error(`MISSING_ENV:${name}`);
@@ -32,8 +33,8 @@ const intervalMs = Math.max(
   Number(process.env.NOTIFICATION_WORKER_INTERVAL_MS ?? 30_000),
 );
 const heartbeatStaleMs = Math.max(
-  60_000,
-  Number(process.env.TRADING_ENGINE_OFFLINE_AFTER_MS ?? 120_000),
+  180_000,
+  Number(process.env.TRADING_ENGINE_OFFLINE_AFTER_MS ?? 180_000),
 );
 let stopping = false;
 
@@ -47,17 +48,24 @@ async function enqueueHealthTransitions() {
       .order("last_seen_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const offline =
-      !heartbeat?.last_seen_at ||
-      Date.now() - Date.parse(heartbeat.last_seen_at) > heartbeatStaleMs;
     const { data: last } = await db
       .from("notification_events")
-      .select("event_type")
+      .select("event_type,created_at")
       .eq("user_id", owner.id)
       .in("event_type", ["TRADING_ENGINE_OFFLINE", "TRADING_ENGINE_RECOVERED"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    const heartbeatAgeMs = heartbeat?.last_seen_at
+      ? Math.max(0, Date.now() - Date.parse(heartbeat.last_seen_at))
+      : null;
+    const health = classifyWorkerHealth(
+      heartbeatAgeMs,
+      last?.event_type ?? null,
+      heartbeatStaleMs,
+    );
+    if (health === "HYSTERESIS") continue;
+    const offline = health === "OFFLINE";
     const type = offline
       ? "TRADING_ENGINE_OFFLINE"
       : "TRADING_ENGINE_RECOVERED";

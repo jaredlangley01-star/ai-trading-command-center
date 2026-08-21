@@ -1333,6 +1333,9 @@ function AutoTraderWorkspace({
       unprotected: 0,
       strategyCoverage: {} as Record<string, number>,
       symbolCoverage: {} as Record<string, number>,
+      seekingPositions: 0,
+      lastBlockReason: null as string | null,
+      cycleId: null as string | null,
     }),
     [activity, setActivity] = useState({
       current: "PAUSED",
@@ -1491,6 +1494,18 @@ function AutoTraderWorkspace({
             · BIG MONEY {paperTest.bigMoneyPositions} /{" "}
             {config.paperTestTargetBigMoneyPositions} · TOTAL{" "}
             {paperTest.totalActive}
+          </span>
+          <span>
+            {paperTest.autoPositions >=
+            Math.min(
+              config.paperTestTargetAutoPositions,
+              config.maximumConcurrentPositions,
+            )
+              ? "TARGET REACHED"
+              : `SEEKING ${paperTest.seekingPositions}`}
+            {paperTest.lastBlockReason
+              ? ` · ${paperTest.lastBlockReason.replaceAll("_", " ")}`
+              : ""}
           </span>
           <span>
             CAPITAL IN MARKET {cash(paperTest.capitalInMarket)} · OPEN P/L{" "}

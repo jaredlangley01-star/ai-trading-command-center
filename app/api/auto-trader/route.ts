@@ -25,6 +25,8 @@ import { ProductionRiskManager } from "@/src/services/risk-manager";
 import { CombinedOpportunityEngine } from "@/src/services/strategies/combined-opportunity-engine";
 import { TradePermissionService } from "@/src/services/trade-permission";
 import { normalizeDatabaseTime } from "@/src/services/config-time";
+import { applyPaperTestThresholds } from "@/src/services/paper-automation-test";
+import { canOpenIntradayEntry } from "@/src/services/intraday-lifecycle";
 
 const assets: Record<string, Asset> = Object.fromEntries(
   [
@@ -144,6 +146,7 @@ export async function GET() {
     recentOrders,
     testPositions,
     testTrades,
+    testCycle,
   ] = await Promise.all([
     supabase
       .from("auto_trader_config")
@@ -200,6 +203,13 @@ export async function GET() {
       .eq("user_id", user.id)
       .eq("paper_test_mode", true)
       .limit(5000),
+    supabase
+      .from("paper_automation_test_cycles")
+      .select("status,metrics,created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
   if (config.error)
     return NextResponse.json(
@@ -297,6 +307,24 @@ export async function GET() {
         }),
         {},
       ),
+      seekingPositions: Number(
+        testCycle.data?.metrics?.seekingPositions ??
+          Math.max(
+            0,
+            mapConfig(config.data).paperTestTargetAutoPositions -
+              (testPositions.data ?? []).filter(
+                (position) =>
+                  position.trade_origin === "AUTO_TRADER" &&
+                  position.broker_position_id,
+              ).length,
+          ),
+      ),
+      lastBlockReason:
+        testCycle.data?.metrics?.lastBlockReason ??
+        (testCycle.data?.status === "WAITING_FOR_SESSION"
+          ? "MARKET_CLOSED"
+          : null),
+      cycleId: testCycle.data?.metrics?.cycleId ?? null,
       persistenceTrace: {
         reloadedValue: mapConfig(config.data).paperTestMode,
         workerValue:
@@ -507,7 +535,23 @@ async function runCycle(
       .maybeSingle(),
     loadBrokerDashboard(),
   ]);
-  const config = mapConfig(configResult.data);
+  const config = applyPaperTestThresholds(mapConfig(configResult.data));
+  if (
+    !canOpenIntradayEntry(new Date(), {
+      timezone: config.sessionTimezone,
+      sessionStart: config.sessionStart,
+      sessionEnd: config.sessionEnd,
+      entryStart: config.entryStart,
+      lastEntryTime: config.lastEntryTime,
+      forceExitTime: config.forceExitTime,
+      maxHoldMinutes: config.maximumHoldMinutes,
+      minimumExitScore: config.minimumExitScore,
+    })
+  )
+    return NextResponse.json(
+      { error: "ENTRY_WINDOW_CLOSED", mode: "PAPER" },
+      { status: 423 },
+    );
   const system: SystemState = {
     mode: "PAPER",
     autoTraderStatus: systemResult.data?.auto_trader_status ?? "PAUSED",
@@ -516,6 +560,11 @@ async function runCycle(
   };
   const selected = createPaperBroker();
   const connectedBroker = brokerDashboard.source !== "DEMO" ? selected : null;
+  if (config.paperTestMode && !connectedBroker)
+    return NextResponse.json(
+      { error: "BROKER_UNAVAILABLE", mode: "PAPER" },
+      { status: 503 },
+    );
   const rawBroker = connectedBroker
     ? connectedBroker.broker
     : new SimulatedPaperBrokerService();

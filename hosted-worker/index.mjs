@@ -23,6 +23,7 @@ import { createAlpacaPaperBrokerService } from "../src/services/broker/alpaca-pa
 import { CombinedOpportunityEngine } from "../src/services/strategies/combined-opportunity-engine.ts";
 import { MarketDataEngine } from "../src/services/market-data-engine.ts";
 import { createPaperMarketData } from "../src/services/market-data/factory.ts";
+import { newestAlpacaTimestamp } from "../src/services/market-data/alpaca-market-data-service.ts";
 import {
   defaultAutoTraderConfig,
   defaultRiskSettings,
@@ -45,6 +46,7 @@ import {
 } from "../src/services/intraday-lifecycle.ts";
 import {
   assertPaperTestEnvironment,
+  applyPaperTestThresholds,
   availableTestSlots,
   canAutoApproveBigMoneyTest,
   paperTestStatus,
@@ -232,24 +234,7 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
       brokerAdapter: process.env.BROKER_ADAPTER,
       liveTradingEnabled: process.env.LIVE_TRADING_ENABLED,
     });
-    config = {
-      ...config,
-      allowedAssets: config.paperTestUniverse,
-      minimumOpportunityScore: config.paperTestMinimumOpportunityScore,
-      minimumConfidence: config.paperTestMinimumConfidence,
-      maximumTradeSize: Math.min(
-        config.maximumTradeSize,
-        config.paperTestMaximumPositionSize,
-      ),
-      maximumRiskPerTrade: Math.min(
-        config.maximumRiskPerTrade,
-        config.paperTestMaximumRiskPerTrade,
-      ),
-      maximumTradesPerDay: Math.min(
-        config.maximumTradesPerDay,
-        config.paperTestMaximumDailyTrades,
-      ),
-    };
+    config = applyPaperTestThresholds(config);
   }
   const [
     { data: confirmedAuto },
@@ -666,6 +651,20 @@ async function processAutonomousOwner(ownerId, account, brokerPositions) {
             stop_loss: result.stopLoss,
             take_profit: result.takeProfit,
             execution_source: result.executionSource,
+            market_data_audit: result.marketDataAudit ?? {},
+            test_mode_context: {
+              enabled: config.paperTestMode,
+              target: config.paperTestTargetAutoPositions,
+              configuredUniverse: config.paperTestUniverse,
+              thresholds: {
+                opportunity: config.minimumOpportunityScore,
+                confidence: config.minimumConfidence,
+                signal: config.minimumStrategyScore,
+                maximumPositionSize: config.maximumTradeSize,
+                maximumRiskPerTrade: config.maximumRiskPerTrade,
+                maximumDailyTrades: config.maximumTradesPerDay,
+              },
+            },
             broker_order_id: result.brokerOrderId,
             completed_at: result.timestamp,
           },
@@ -1608,6 +1607,9 @@ async function synchronizeOwnerPortfolio(
     await db.from("paper_broker_fills").upsert(
       fills.map((fill) => {
         const platformOrder = orderMap.get(String(fill.symbol).toUpperCase());
+        const executionRequest = platformOrder
+          ? executionRequestByOrder.get(platformOrder.id)
+          : null;
         const origin = ["BIG_MONEY", "AUTO_TRADER", "MANUAL"].includes(
           String(platformOrder?.source).toUpperCase(),
         )
@@ -1628,6 +1630,8 @@ async function synchronizeOwnerPortfolio(
                 ? "Big Money"
                 : "Manual / External PAPER",
           trade_origin: origin,
+          paper_test_mode: Boolean(executionRequest?.paper_test_mode),
+          test_slot: executionRequest?.test_slot ?? null,
           executed_at: String(fill.transaction_time ?? asOf),
           raw: fill,
         };
@@ -2436,7 +2440,11 @@ async function persistOwnerQuotes(ownerId, snapshots, asOf, clock, calendar) {
         last,
         provider: "ALPACA",
         feed: "IEX",
-        as_of: snapshot?.latestTrade?.t ?? snapshot?.minuteBar?.t ?? asOf,
+        as_of: newestAlpacaTimestamp(
+          snapshot?.latestQuote?.t,
+          snapshot?.latestTrade?.t,
+          snapshot?.minuteBar?.t ?? asOf,
+        ),
         market_session: marketSession,
         clock_observed_at: asOf,
         is_trading_day: normalizedClock.isTradingDay,
@@ -2452,19 +2460,77 @@ async function persistOwnerQuotes(ownerId, snapshots, asOf, clock, calendar) {
     });
 }
 
+async function pulseHeartbeats(owners, stage) {
+  const at = new Date().toISOString();
+  await Promise.all(
+    (owners ?? []).map((owner) =>
+      db
+        .from("trading_worker_heartbeats")
+        .upsert(
+          {
+            user_id: owner.id,
+            worker_id: workerId,
+            status: "ONLINE",
+            runtime: "HOSTED_PRODUCTION",
+            last_seen_at: at,
+            version: process.env.WORKER_VERSION ?? "TRADE-018.3",
+          },
+          { onConflict: "user_id,worker_id" },
+        )
+        .then(({ error }) => {
+          console.log(
+            JSON.stringify({
+              level: error ? "warn" : "info",
+              event: "heartbeat_write",
+              stage,
+              success: !error,
+              at,
+            }),
+          );
+        }),
+    ),
+  );
+}
+
 async function cycle() {
   const startedAt = new Date().toISOString();
+  const cycleId = `${workerId}:${startedAt}`;
+  console.log(
+    JSON.stringify({
+      level: "info",
+      event: "worker_cycle_start",
+      cycleId,
+      at: startedAt,
+    }),
+  );
+  const { data: owners, error } = await db.from("profiles").select("id");
+  if (error) throw error;
+  const { data: ownerConfigs } = await db
+    .from("auto_trader_config")
+    .select("user_id,paper_test_mode,paper_test_universe,allowed_assets");
+  const configuredSymbols = [
+    ...new Set([
+      ...symbols,
+      ...(ownerConfigs ?? []).flatMap(
+        (config) =>
+          (config.paper_test_mode
+            ? config.paper_test_universe
+            : config.allowed_assets) ?? [],
+      ),
+    ]),
+  ];
+  await pulseHeartbeats(owners, "CYCLE_START");
   await ensureScheduledResearchJob();
   await processResearchJob();
   await processBacktestJob();
-  const { data: owners, error } = await db.from("profiles").select("id");
-  if (error) throw error;
+  await pulseHeartbeats(owners, "RESEARCH_COMPLETE");
   const marketDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+  const alpacaStartedAt = Date.now();
   const [
     account,
     positions,
@@ -2492,7 +2558,7 @@ async function cycle() {
       headers: brokerHeaders(),
     }),
     json(
-      `${DATA_URL}/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols.join(","))}&feed=iex`,
+      `${DATA_URL}/v2/stocks/snapshots?symbols=${encodeURIComponent(configuredSymbols.join(","))}&feed=iex`,
       {
         headers: headers(
           process.env.ALPACA_API_KEY,
@@ -2505,9 +2571,29 @@ async function cycle() {
       headers: brokerHeaders(),
     }),
   ]);
+  console.log(
+    JSON.stringify({
+      level: "info",
+      event: "alpaca_batch_complete",
+      cycleId,
+      durationMs: Date.now() - alpacaStartedAt,
+      symbolCount: configuredSymbols.length,
+      at: new Date().toISOString(),
+    }),
+  );
   for (const owner of owners ?? [])
     await persistOwnerQuotes(owner.id, snapshots, startedAt, clock, calendar);
+  const queueStartedAt = Date.now();
   await processManualExecutionRequests();
+  console.log(
+    JSON.stringify({
+      level: "info",
+      event: "queue_processing_complete",
+      cycleId,
+      durationMs: Date.now() - queueStartedAt,
+      at: new Date().toISOString(),
+    }),
+  );
   for (const owner of owners ?? []) {
     const { data: state } = await db
       .from("system_state")
@@ -2558,6 +2644,149 @@ async function cycle() {
         dedupeKey: `auto-cycle-failed:${startedAt.slice(0, 13)}`,
       });
     }
+    const [
+      { data: traceConfigRow },
+      { data: tracePositions },
+      { data: traceDecisions },
+      { data: traceRequests },
+    ] = await Promise.all([
+      db
+        .from("auto_trader_config")
+        .select("*")
+        .eq("user_id", owner.id)
+        .maybeSingle(),
+      db
+        .from("paper_positions")
+        .select("broker_position_id,trade_origin")
+        .eq("user_id", owner.id)
+        .in("status", ["OPEN", "EXIT_PENDING"]),
+      db
+        .from("automated_decisions")
+        .select("status,reason,market_data_audit")
+        .eq("user_id", owner.id)
+        .gte("completed_at", startedAt)
+        .order("completed_at", { ascending: false }),
+      db
+        .from("paper_execution_requests")
+        .select("status,paper_test_mode")
+        .eq("user_id", owner.id)
+        .eq("paper_test_mode", true)
+        .gte("queued_at", startedAt),
+    ]);
+    const traceConfig = traceConfigRow ? mapAutoConfig(traceConfigRow) : null;
+    const confirmedAutoPositions = (tracePositions ?? []).filter(
+      (position) =>
+        position.trade_origin === "AUTO_TRADER" && position.broker_position_id,
+    ).length;
+    const targetPositions = traceConfig
+      ? Math.min(
+          traceConfig.paperTestTargetAutoPositions,
+          traceConfig.maximumConcurrentPositions,
+        )
+      : 0;
+    const staleCount = (traceDecisions ?? []).filter(
+      (decision) => decision.market_data_audit?.state === "STALE",
+    ).length;
+    const freshCount = (traceDecisions ?? []).filter(
+      (decision) => decision.market_data_audit?.state === "FRESH",
+    ).length;
+    const queuedCount = (traceRequests ?? []).filter((request) =>
+      [
+        "QUEUED",
+        "SUBMITTING",
+        "SUBMITTED",
+        "ACCEPTED",
+        "PARTIALLY_FILLED",
+        "FILLED",
+      ].includes(request.status),
+    ).length;
+    const lastDecision = traceDecisions?.[0];
+    const entryWindowOpen = traceConfig
+      ? canOpenIntradayEntry(new Date(), {
+          timezone: traceConfig.sessionTimezone,
+          sessionStart: traceConfig.sessionStart,
+          sessionEnd: traceConfig.sessionEnd,
+          entryStart: traceConfig.entryStart,
+          lastEntryTime: traceConfig.lastEntryTime,
+          forceExitTime: traceConfig.forceExitTime,
+          maxHoldMinutes: traceConfig.maximumHoldMinutes,
+          minimumExitScore: traceConfig.minimumExitScore,
+        })
+      : false;
+    const lastBlockReason = !clock?.is_open
+      ? "MARKET_CLOSED"
+      : !entryWindowOpen
+        ? "ENTRY_WINDOW_CLOSED"
+        : (lastDecision?.reason ??
+          (queuedCount ? "ORDER_QUEUED" : "NO_ELIGIBLE_SIGNALS"));
+    if (traceConfig?.paperTestMode)
+      await db.from("paper_automation_test_cycles").upsert(
+        {
+          user_id: owner.id,
+          cycle_key: `production:${cycleId}`,
+          status:
+            confirmedAutoPositions >= targetPositions
+              ? "TARGET_REACHED"
+              : clock?.is_open && entryWindowOpen
+                ? "SCANNING"
+                : "WAITING_FOR_SESSION",
+          target_auto_positions: targetPositions,
+          confirmed_auto_positions: confirmedAutoPositions,
+          pending_auto_orders: (traceRequests ?? []).filter((request) =>
+            [
+              "QUEUED",
+              "SUBMITTING",
+              "SUBMITTED",
+              "ACCEPTED",
+              "PARTIALLY_FILLED",
+            ].includes(request.status),
+          ).length,
+          target_big_money_positions:
+            traceConfig.paperTestTargetBigMoneyPositions,
+          confirmed_big_money_positions: (tracePositions ?? []).filter(
+            (position) =>
+              position.trade_origin === "BIG_MONEY" &&
+              position.broker_position_id,
+          ).length,
+          metrics: {
+            cycleId,
+            workerState: "ONLINE",
+            testModeState: "ACTIVE",
+            targetPositions,
+            currentPositions: confirmedAutoPositions,
+            seekingPositions: Math.max(
+              0,
+              targetPositions - confirmedAutoPositions,
+            ),
+            marketOpen: Boolean(clock?.is_open),
+            entryWindowOpen,
+            configuredUniverseCount: traceConfig.paperTestUniverse.length,
+            configuredUniverse: traceConfig.paperTestUniverse,
+            symbolsEvaluated: traceDecisions?.length ?? 0,
+            freshMarketDataCount: freshCount,
+            staleMarketDataCount: staleCount,
+            eligibleCandidates: (traceDecisions ?? []).filter(
+              (decision) => decision.status === "EXECUTED",
+            ).length,
+            riskApprovedCount: (traceDecisions ?? []).filter(
+              (decision) => decision.reason === "RISK_AND_PERMISSION_APPROVED",
+            ).length,
+            queuedCount,
+            brokerSubmittedCount: (traceRequests ?? []).filter((request) =>
+              ["SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED", "FILLED"].includes(
+                request.status,
+              ),
+            ).length,
+            filledCount: (traceRequests ?? []).filter(
+              (request) => request.status === "FILLED",
+            ).length,
+            lastBlockReason,
+          },
+          strategy_coverage: {},
+          symbol_coverage: {},
+        },
+        { onConflict: "user_id,cycle_key" },
+      );
     const { data: persistedWorkerConfig } = await db
       .from("auto_trader_config")
       .select("paper_test_mode,paper_test_target_auto_positions")
@@ -2566,8 +2795,13 @@ async function cycle() {
     const metadata = {
       accountStatus: account?.status ?? "UNKNOWN",
       positionCount: positions?.length ?? 0,
-      openOrderCount: orders?.length ?? 0,
+      openOrderCount: (orders ?? []).filter((order) =>
+        ["new", "accepted", "pending_new", "partially_filled"].includes(
+          String(order.status).toLowerCase(),
+        ),
+      ).length,
       scannedSymbols: Object.keys(snapshots ?? {}),
+      configuredUniverse: configuredSymbols,
       marketData: "ALPACA_IEX",
       broker: "ALPACA_PAPER",
       autoTrader: autoTraderPermitted ? "SCHEDULED" : "PAUSED",
@@ -2576,6 +2810,8 @@ async function cycle() {
         persistedWorkerConfig?.paper_test_target_auto_positions ?? 8,
       ),
       safety: "LIVE_LOCKED",
+      cycleId,
+      cycleDurationMs: Date.now() - Date.parse(startedAt),
     };
     await db.from("trading_worker_heartbeats").upsert(
       {
@@ -2613,12 +2849,14 @@ async function cycle() {
 }
 
 async function loop() {
+  const cycleStartedAt = Date.now();
   try {
     await cycle();
     console.log(
       JSON.stringify({
         level: "info",
-        event: "worker_cycle_complete",
+        event: "worker_cycle_end",
+        durationMs: Date.now() - cycleStartedAt,
         at: new Date().toISOString(),
       }),
     );
@@ -2627,6 +2865,8 @@ async function loop() {
       JSON.stringify({
         level: "error",
         event: "worker_cycle_failed",
+        durationMs: Date.now() - cycleStartedAt,
+        fatal: false,
         message: error instanceof Error ? error.message : "UNKNOWN",
         at: new Date().toISOString(),
       }),
@@ -2634,10 +2874,36 @@ async function loop() {
   }
   if (!stopping) setTimeout(loop, intervalMs);
 }
+let heartbeatPulseRunning = false;
+const heartbeatPulseTimer = setInterval(
+  async () => {
+    if (stopping || heartbeatPulseRunning) return;
+    heartbeatPulseRunning = true;
+    try {
+      const { data: owners } = await db.from("profiles").select("id");
+      await pulseHeartbeats(owners, "CYCLE_IN_PROGRESS");
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "warn",
+          event: "heartbeat_write_failed",
+          fatal: false,
+          message: error instanceof Error ? error.message : "UNKNOWN",
+          at: new Date().toISOString(),
+        }),
+      );
+    } finally {
+      heartbeatPulseRunning = false;
+    }
+  },
+  Math.min(30_000, intervalMs),
+);
 process.on("SIGTERM", () => {
   stopping = true;
+  clearInterval(heartbeatPulseTimer);
 });
 process.on("SIGINT", () => {
   stopping = true;
+  clearInterval(heartbeatPulseTimer);
 });
 await loop();

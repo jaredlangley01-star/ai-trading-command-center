@@ -52,6 +52,32 @@ export class AutoTraderEngine {
 
   async run(asset: Asset): Promise<AutomatedDecisionResult> {
     const opportunity = await this.opportunityEngine.evaluate(asset);
+    const evaluatedAt = new Date().toISOString();
+    const quoteTime = Date.parse(opportunity.marketDataTimestamp ?? "");
+    const freshnessThresholdMs = opportunity.dataSource.includes("ALPACA")
+      ? Math.max(marketDataMaxAgeMs(), 120_000)
+      : marketDataMaxAgeMs();
+    const ageMs = Number.isFinite(quoteTime)
+      ? Math.max(0, Date.now() - quoteTime)
+      : null;
+    const marketDataAudit = {
+      source: opportunity.dataSource,
+      barTimestamp: opportunity.marketBarTimestamp ?? null,
+      quoteTimestamp:
+        opportunity.marketQuoteTimestamp ??
+        opportunity.marketDataTimestamp ??
+        null,
+      tradeTimestamp: opportunity.marketTradeTimestamp ?? null,
+      workerReceivedAt: opportunity.marketDataReceivedAt ?? evaluatedAt,
+      candidateEvaluatedAt: evaluatedAt,
+      ageMs,
+      freshnessThresholdMs,
+      state: (ageMs == null
+        ? "UNAVAILABLE"
+        : ageMs <= freshnessThresholdMs
+          ? "FRESH"
+          : "STALE") as "FRESH" | "STALE" | "UNAVAILABLE",
+    };
     const bucket = new Date(opportunity.timestamp).toISOString().slice(0, 13);
     const key = `${asset.symbol}:${opportunity.finalRecommendation}:${opportunity.supportingStrategies.sort().join("+")}:${bucket}`;
     const base = {
@@ -61,6 +87,7 @@ export class AutoTraderEngine {
       signalScore: opportunity.combinedScore,
       strategies: opportunity.supportingStrategies,
       timestamp: new Date().toISOString(),
+      marketDataAudit,
     };
     const finish = async (
       values: Omit<
@@ -83,7 +110,6 @@ export class AutoTraderEngine {
         takeProfit: null,
         executionSource: "NONE",
       });
-    const quoteTime = Date.parse(opportunity.marketDataTimestamp ?? "");
     if (
       opportunity.dataSource === "UNAVAILABLE" ||
       (opportunity.marketDataTimestamp && !Number.isFinite(quoteTime))
@@ -100,7 +126,7 @@ export class AutoTraderEngine {
       });
     if (
       opportunity.marketDataTimestamp &&
-      Date.now() - quoteTime > marketDataMaxAgeMs()
+      Date.now() - quoteTime > freshnessThresholdMs
     )
       return finish({
         status: "REJECTED",
