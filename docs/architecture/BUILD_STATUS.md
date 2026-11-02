@@ -229,3 +229,10 @@ The dashboard now includes a filterable Strategy Decision Journal with counts fo
 ## Milestone 26: guided Mac startup and safe shutdown
 
 Added `scripts/start-small-trading-mac.sh` and `scripts/stop-small-trading-mac.sh`. The startup helper checks Docker Desktop, Node.js and OpenSSL; creates private local env files; securely prompts for missing Alpaca Paper credentials without echoing the secret; generates a random API bearer token; starts the Docker worker/API services; installs dashboard dependencies if needed; and launches the local dashboard. The stop helper stops the containers without deleting the persistent Docker volume. User must still install prerequisites, obtain Alpaca Paper credentials and run the script on their own Mac. This has not been run on the user's device.
+
+
+## Milestone 27: preliminary risk reviews in every observation cycle
+
+The recurring worker now runs a deterministic preliminary risk review for every directional strategy signal. It constructs illustrative candidate levels using a clearly disclosed 1% stop and 2R target assumption, then sends the candidate through the risk manager. Crucially, the worker sets `portfolio_context_verified=false`: until broker positions and daily P&L are reconciled, every directional candidate is rejected with `PORTFOLIO_CONTEXT_UNVERIFIED`. This prevents a preliminary scan from falsely appearing approved. No order submission path was added.
+
+The decision journal now displays the preliminary risk result, rejection reason, proposed quantity, estimated loss and illustrative stop/target. The Agent Command Centre marks Risk Manager as active. These levels are placeholders for development and are not optimized trading parameters or recommendations.
