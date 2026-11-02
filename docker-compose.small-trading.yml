@@ -1,0 +1,37 @@
+services:
+  observation-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: small-trading-worker:local
+    restart: unless-stopped
+    env_file:
+      - .env.small-trading
+    environment:
+      SMALL_TRADING_DATABASE_PATH: /data/trading.db
+    volumes:
+      - small-trading-data:/data
+    command: ["small-trading-worker"]
+    stop_grace_period: 30s
+
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: small-trading-worker:local
+    restart: unless-stopped
+    env_file:
+      - .env.small-trading
+    environment:
+      SMALL_TRADING_DATABASE_PATH: /data/trading.db
+      SMALL_TRADING_API_HOST: 0.0.0.0
+      SMALL_TRADING_API_PORT: "8765"
+    volumes:
+      - small-trading-data:/data
+    command: ["small-trading-api"]
+    expose:
+      - "8765"
+    stop_grace_period: 15s
+
+volumes:
+  small-trading-data:
