@@ -29,3 +29,8 @@ The scheduler can repeatedly scan configured symbols in a long-running process. 
 ## Next implementation target
 
 Add persistent audit/event storage and a broker adapter interface with a PAPER-only fake broker for lifecycle testing. Then evaluate the actual broker's current eligibility, data coverage and free-tier constraints before wiring a real paper account.
+
+
+## Verification notes
+
+A review identified and corrected two simulator/test-foundation issues: the in-memory SQLite test store now shares one named in-memory database across connections, and the simulated broker rejects reuse of an idempotency key for a different order payload. The source has been updated, but automated tests have not yet been executed in a Python runtime. Do not treat the implementation as verified until CI or a local Python 3.12+ test run passes.
