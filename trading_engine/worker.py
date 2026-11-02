@@ -33,7 +33,8 @@ class ObservationWorker:
                 "signals": [
                     {
                         "strategy": getattr(signal, "strategy", "unknown"),
-                        "status": str(getattr(signal, "status", "UNKNOWN")),
+                        "status": "NO_SIGNAL" if getattr(signal, "side", None) is None else signal.side.value,
+                        "score": getattr(signal, "score", 0.0),
                         "reason": getattr(signal, "reason", ""),
                     }
                     for signal in report.signals
