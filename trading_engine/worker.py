@@ -44,7 +44,19 @@ class ObservationWorker:
         limits = self.risk_manager.limits
         by_risk = int(limits.max_loss_per_trade // stop_distance) if stop_distance > 0 else 0
         by_value = int(limits.max_position_value // price) if price > 0 else 0
-        quantity = max(1, min(by_risk, by_value))
+        quantity = min(by_risk, by_value)
+        if quantity < 1:
+            return {
+                "status": "REJECTED",
+                "reason": "POSITION_SIZE_BELOW_MINIMUM",
+                "proposed_quantity": 0,
+                "approved_quantity": 0,
+                "estimated_loss": 0.0,
+                "entry": price,
+                "stop_loss": round(stop_loss, 4),
+                "take_profit": round(take_profit, 4),
+                "assumptions": "Illustrative 1% stop / 2R target; size is below one whole share",
+            }
         proposal = TradeProposal(
             symbol=symbol, side=signal.side, entry=price, stop_loss=stop_loss,
             take_profit=take_profit, quantity=quantity, strategy=signal.strategy,
