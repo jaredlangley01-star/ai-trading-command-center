@@ -35,3 +35,11 @@ def test_live_context_is_blocked_before_broker():
     with pytest.raises(PermissionError,match="PAPER_ONLY_GATE"):
         gate.submit(make_proposal(),RiskContext(paper_mode=False),"live-context")
     assert broker.list_fills()==[]
+
+
+def test_same_idempotency_key_with_different_order_is_rejected():
+    gate,broker,_=gateway()
+    gate.submit(make_proposal(),RiskContext(),"same-key")
+    with pytest.raises(ValueError,match="IDEMPOTENCY_KEY_REUSED"):
+        gate.submit(make_proposal(quantity=1),RiskContext(),"same-key")
+    assert len(broker.list_fills())==1
