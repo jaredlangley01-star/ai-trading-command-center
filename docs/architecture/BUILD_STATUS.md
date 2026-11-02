@@ -157,3 +157,5 @@ The worker and API are separate processes and must share the same durable databa
 ## Milestone 16: auditable market observations
 
 Each observation-cycle event now stores the market price, source, bar timestamp and volume used for strategy evaluation, alongside all four strategy outcomes and reasons. Cycle reports expose the same market metadata, and the dashboard activity feed displays the observed price and data source. Tests assert that fixture observations preserve this metadata. Fixture data remains explicitly labelled IN_MEMORY_FIXTURE and must not be mistaken for live market observations. The change is committed; CI verification is pending.
+
+The dashboard activity feed also renders each of the four strategy outcomes with its status and score. Scores are heuristic ranking values from baseline formulas, not probabilities or expected returns.
