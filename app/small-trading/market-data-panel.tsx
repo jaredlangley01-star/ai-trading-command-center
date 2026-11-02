@@ -72,9 +72,9 @@ export default function MarketDataPanel() {
     <div className="st-divider" />
     {error ? <div className="st-empty"><b>Market diagnostics not connected</b><p>{error}</p></div> : !data?.observations?.length ? <div className="st-empty"><b>No market observations recorded</b><p>Freshness appears after the worker successfully reads market bars.</p></div> :
       <div>{data.observations.map(item => <div className="st-health-row" key={item.symbol}>
-        <span><b>{item.symbol}</b><small className="st-market-meta">{item.source} · {new Date(item.observed_at).toLocaleString()}</small></span>
+        <span><b>{item.symbol}</b><small className="st-market-meta">{item.source === "IN_MEMORY_FIXTURE" ? "GENERATED DEMO DATA · NOT LIVE" : item.source} · {new Date(item.observed_at).toLocaleString()}</small></span>
         <b className={item.freshness === "FRESH" ? "" : "st-muted"}>{item.price == null ? "—" : item.price.toFixed(2)} · {item.freshness} · {Math.round(item.age_seconds)}s</b>
       </div>)}</div>}
-    <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. Session status comes from Alpaca's broker clock, not a weekday estimate. IEX is not a consolidated all-exchange feed.</p>
+    <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. Session status comes from Alpaca's broker clock, not a weekday estimate. Generated demo prices are synthetic and must never be treated as real market data. Alpaca IEX is not a consolidated all-exchange feed.</p>
   </section>;
 }
