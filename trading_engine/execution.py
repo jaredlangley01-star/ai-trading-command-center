@@ -18,7 +18,12 @@ class PaperExecutionGateway:
         if existing:
             if existing["event_type"] != "ORDER_FILLED":
                 raise RuntimeError("IDEMPOTENCY_KEY_ALREADY_USED")
-            return existing["payload"]
+            payload = existing["payload"]
+            request = [proposal.symbol.upper(), proposal.side.value, proposal.quantity,
+                       proposal.entry, proposal.stop_loss, proposal.take_profit]
+            if payload.get("request") != request:
+                raise ValueError("IDEMPOTENCY_KEY_REUSED_FOR_DIFFERENT_ORDER")
+            return {k: v for k, v in payload.items() if k != "request"}
         decision=self.risk.evaluate(proposal,context)
         self.store.append_event("RISK_DECISION",{
             "symbol":proposal.symbol,"strategy":proposal.strategy,
@@ -31,6 +36,8 @@ class PaperExecutionGateway:
             raise PermissionError(f"RISK_REJECTED:{decision.reason}")
         fill=self.broker.submit(proposal,client_order_id)
         payload=asdict(fill)
+        payload["request"] = [proposal.symbol.upper(), proposal.side.value, proposal.quantity,
+                             proposal.entry, proposal.stop_loss, proposal.take_profit]
         if not self.store.append_event("ORDER_FILLED",payload,event_key=client_order_id):
             raise RuntimeError("DUPLICATE_ORDER_EVENT")
-        return payload
+        return {k: v for k, v in payload.items() if k != "request"}
