@@ -15,7 +15,7 @@ def _is_loopback(host):
         return host.lower() == "localhost"
 
 
-def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765, access_token=None, event_store=None):
+def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765, access_token=None, event_store=None, market_clock_snapshot=None):
     token = access_token or os.getenv("SMALL_TRADING_API_TOKEN")
     if not _is_loopback(host) and not token:
         raise ValueError("NON_LOCAL_BIND_REQUIRES_SMALL_TRADING_API_TOKEN")
@@ -80,6 +80,14 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                 observations = list(latest.values())
                 overall = "UNKNOWN" if not observations else ("STALE" if any(x["freshness"] == "STALE" for x in observations) else "FRESH")
                 return self._send(200, {"status": overall, "max_age_seconds": 120, "observations": observations})
+            if parsed.path == "/api/market-clock":
+                if market_clock_snapshot is None:
+                    return self._send(503, {"status": "UNKNOWN", "read_only": True})
+                try:
+                    payload = market_clock_snapshot.market_clock()
+                    return self._send(200, payload)
+                except Exception:
+                    return self._send(503, {"status": "UNAVAILABLE", "read_only": True, "error": "MARKET_CLOCK_READ_FAILED"})
             if parsed.path == "/api/broker":
                 if broker_snapshot is None:
                     return self._send(503, {"mode": "NOT_CONNECTED", "read_only": True})
