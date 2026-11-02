@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+type Reconciliation = { status?: string; reason?: string; position_count?: number; open_order_count?: number; gross_position_market_value?: number | null; risk_approval_enabled?: boolean; execution_enabled?: boolean; note?: string };
 type Payload = {
   mode?: string; read_only?: boolean; connected?: boolean; error?: string;
   account?: { status?: string; currency?: string; cash?: string; buying_power?: string; equity?: string; portfolio_value?: string; trading_blocked?: boolean; account_blocked?: boolean };
@@ -14,6 +15,7 @@ function money(value?: string, currency = "USD") {
 export default function BrokerReadOnlyPanel() {
   const [data, setData] = useState<Payload | null>(null);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let active = true;
@@ -21,7 +23,9 @@ export default function BrokerReadOnlyPanel() {
       try {
         const response = await fetch("/api/small-trading/broker", { cache: "no-store" });
         const payload = (await response.json()) as Payload;
-        if (active) { setData(response.ok ? payload : { ...payload, connected: false }); setCheckedAt(new Date().toISOString()); }
+        const reconciliationResponse = await fetch("/api/small-trading/reconciliation", { cache: "no-store" });
+        const reconciliationPayload = (await reconciliationResponse.json()) as Reconciliation;
+        if (active) { setData(response.ok ? payload : { ...payload, connected: false }); setReconciliation(reconciliationPayload); setCheckedAt(new Date().toISOString()); }
       } catch {
         if (active) { setData({ connected: false, error: "BROKER_API_UNAVAILABLE" }); setCheckedAt(new Date().toISOString()); }
       } finally { if (active) setLoading(false); }
@@ -42,6 +46,11 @@ export default function BrokerReadOnlyPanel() {
         <article className="st-metric"><span>Buying power</span><strong>{money(data?.account?.buying_power, currency)}</strong><small>Broker reported</small></article>
       </div>
       <div className="st-health-row"><span>Account status</span><b>{data?.account?.status ?? "UNKNOWN"}</b></div>
+      <div className="st-health-row"><span>Broker data validation</span><b>{reconciliation?.status ?? "CHECKING"}</b></div>
+      {reconciliation && <div className="st-health-row"><span>Open orders / positions</span><b>{reconciliation.open_order_count ?? "—"} / {reconciliation.position_count ?? "—"}</b></div>}
+      {reconciliation?.note && <p className="st-muted">{reconciliation.note}</p>}
+      {reconciliation?.status === "BROKER_DATA_VERIFIED" && <p className="st-muted">Broker account fields, positions and open orders passed read-only validation. This does not approve trades.</p>}
+      {reconciliation && reconciliation.status !== "BROKER_DATA_VERIFIED" && <p className="st-muted">Validation blocked: {reconciliation.reason ?? "UNKNOWN"}. Risk approval remains disabled.</p>}
       <div className="st-health-row"><span>Trading blocked</span><b>{data?.account?.trading_blocked || data?.account?.account_blocked ? "YES" : "NO"}</b></div>
       <h3 className="st-subheading">Broker positions</h3>
       {data?.positions?.length ? <div className="st-table-wrap"><table className="st-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg entry</th><th>Market value</th><th>Unrealised P&amp;L</th></tr></thead><tbody>{data.positions.map((p, i) => <tr key={i}><td>{p.symbol ?? "—"}</td><td>{p.side ?? "—"}</td><td>{p.qty ?? "—"}</td><td>{money(p.avg_entry_price, currency)}</td><td>{money(p.market_value, currency)}</td><td>{money(p.unrealized_pl, currency)}</td></tr>)}</tbody></table></div> : <p className="st-muted">No open broker positions.</p>}
