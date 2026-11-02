@@ -8,6 +8,7 @@ from .storage import SQLiteStore
 from .models import Side, TradeProposal
 from .risk import RiskContext, RiskManager
 from .positions import PositionLedger, PositionMonitoringAgent
+from .performance import PerformanceReportingAgent
 
 
 class ObservationWorker:
@@ -24,6 +25,7 @@ class ObservationWorker:
         self.risk_manager = RiskManager()
         self.position_ledger = PositionLedger(store)
         self.position_monitor = PositionMonitoringAgent(self.position_ledger)
+        self.performance_agent = PerformanceReportingAgent(store)
 
     def _agent_event(self, agent, phase, status, symbol, summary, details=None):
         self.store.append_event("AGENT_ACTIVITY", {
@@ -130,6 +132,10 @@ class ObservationWorker:
                 "signals": signal_rows, "execution_enabled": False,
             }
             self.store.append_event("OBSERVATION_CYCLE", payload)
+            performance = self.performance_agent.snapshot()
+            self._agent_event("performance_reporting", "LEDGER_SUMMARY", "COMPLETED", symbol,
+                              "Refreshed simulated ledger performance summary",
+                              performance)
             health_status = "OK" if report.status == "READY" else "DEGRADED"
             self.heartbeat.record(health_status, f"{symbol}:{report.status}")
             self._agent_event("chief_orchestrator", "CYCLE_COMPLETED", "COMPLETED", symbol,
