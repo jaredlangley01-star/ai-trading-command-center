@@ -100,3 +100,79 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+
+
+---
+
+# Small Trading Platform (separate development branch)
+
+The new Small Trading foundation is being built on the `rebuild/small-trading-foundation` branch. It is separate from the legacy dashboard and does not change the repository's main branch.
+
+## First run: local demo mode
+
+The quickest way to see the agent workflow is to run the local synthetic-data demo. It does not require an Alpaca account and does not submit broker orders.
+
+### Requirements
+
+- macOS with Docker Desktop installed and running
+- Git
+- Node.js 22.13 or newer
+- Internet connection for dependency installation
+
+### Start
+
+Clone this branch:
+
+```bash
+git clone --branch rebuild/small-trading-foundation https://github.com/jaredlangley01-star/ai-trading-command-center.git
+cd ai-trading-command-center
+```
+
+Run the guided setup:
+
+```bash
+bash scripts/start-small-trading-mac.sh
+```
+
+The example environment defaults to `SMALL_TRADING_DATA_MODE=demo`. The script creates a private local dashboard token, starts the worker and read-only API in Docker, installs JavaScript dependencies if needed, and launches the dashboard.
+
+Open [http://localhost:3000/small-trading](http://localhost:3000/small-trading).
+
+Demo prices are generated test data, not market prices. The dashboard labels them accordingly. Demo mode exists to demonstrate the software workflow and must not be used to evaluate a strategy or make trading decisions.
+
+### Stop
+
+Use a second Terminal window:
+
+```bash
+cd ai-trading-command-center
+bash scripts/stop-small-trading-mac.sh
+```
+
+This stops the worker and API while retaining the local SQLite event database. Pressing Control+C in the dashboard terminal stops only the dashboard development server.
+
+### Switch to Alpaca IEX observations later
+
+Create an Alpaca Paper account and obtain its API key and secret from Alpaca's own dashboard. Never paste credentials into ChatGPT or commit them to Git.
+
+In the private `.env.small-trading` file, set:
+
+```dotenv
+SMALL_TRADING_DATA_MODE=alpaca_iex
+```
+
+The guided startup script then asks for missing Alpaca credentials through hidden terminal input. The worker reads IEX market data only. This project remains observation-only: no order submission, amendment, cancellation or live trading is enabled.
+
+## Safety and status
+
+- The new development branch is not the legacy production dashboard.
+- The Python agent roles are deterministic software components, not independent LLM agents.
+- Demo prices are synthetic.
+- Risk previews remain blocked until portfolio context is verified.
+- Position monitoring updates only the local simulated position ledger.
+- The broker account reader is read-only.
+- No live or paper broker orders are submitted by this observation-only workflow.
+- Automated CI checks validate tests, TypeScript, container build and deployment configuration. They do not prove profitability or broker connectivity.
+- No paid hosting service is provisioned by this branch.
+
+For detailed setup and operational notes, see `docs/architecture/WORKER_OPERATIONS.md` and `docs/architecture/BUILD_STATUS.md`.
