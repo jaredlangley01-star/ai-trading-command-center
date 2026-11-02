@@ -45,3 +45,14 @@ jobs:
         uses: actions/checkout@v4
       - name: Build observation worker image (no push)
         run: docker build --tag small-trading-worker:test .
+
+
+  deployment-compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Validate two-service deployment configuration
+        run: |
+          cp .env.small-trading.example .env.small-trading
+          docker compose -f docker-compose.small-trading.yml config --quiet
