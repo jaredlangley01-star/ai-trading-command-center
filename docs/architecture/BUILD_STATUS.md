@@ -130,3 +130,14 @@ Added a same-origin Next.js API proxy for the read-only Python dashboard API. Th
 Required Next.js server environment variables are SMALL_TRADING_BACKEND_URL and SMALL_TRADING_API_TOKEN. The Python API must use the matching token. Never expose either variable with a NEXT_PUBLIC_ prefix. See docs/architecture/DASHBOARD_CONNECTION.md.
 
 The UI proxy and polling changes are committed but awaiting CI type-check. No backend URL, credentials, broker account, hosting or deployment has been configured.
+
+
+## Milestone 14: worker runtime and container packaging
+
+Added the `small-trading-worker` command with a `--once` diagnostic mode, graceful SIGINT/SIGTERM shutdown, and guaranteed SQLite connection cleanup. Added tests for one-shot success/failure and service lifecycle. Added a non-root Python 3.12 container image with a persistent `/data` volume and Docker build verification in CI. The image is built for testing only; it is not pushed to a registry or deployed.
+
+CI run 41444838371 passed the dashboard proxy/type-check and Python tests before the runtime/container changes. CI run 41445050237 is the verification run for the runtime/container milestone and is currently queued.
+
+## Deployment readiness
+
+The worker can now be packaged consistently, but it still needs a persistent host with durable storage, server-side secrets, restart policy, and secure network path to the dashboard. No provider has been selected or provisioned, no container image has been published, and no charges have been incurred. Alpaca account credentials are not configured. No broker account is connected and there is no order execution in this worker.
