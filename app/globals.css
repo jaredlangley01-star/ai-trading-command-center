@@ -5213,3 +5213,31 @@ body {
 .vo-activity{background:#0b1520}.vo-activity-list button{background:#111e2b}
 @media(max-width:900px){.vo-office-scene{grid-template-columns:1fr;grid-template-rows:34px auto auto auto auto;min-height:0}.vo-scene-header{grid-column:1}.vo-executive-zone,.vo-main-floor,.vo-collab-zone,.vo-break-zone{grid-column:1;grid-row:auto}.vo-executive-zone{min-height:280px}.vo-chief-board{max-width:360px}.vo-corridor{display:none}.vo-station-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.vo-office-scene{padding:9px;gap:9px}.vo-scene-header{font-size:6px;gap:8px;flex-wrap:wrap;padding:8px}.vo-station-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.vo-station{min-height:175px}.vo-break-interior{grid-template-columns:75px minmax(0,1fr)}.vo-office-footer{grid-template-columns:repeat(3,1fr)}.vo-office-footer>div{padding:8px}.vo-office-footer span{font-size:6px}.vo-toolbar{align-items:flex-start}.vo-toolbar>div:first-child{flex-wrap:wrap}}
+
+
+/* Open-plan architectural office: remove dashboard-card treatment */
+.vo-office-scene{grid-template-columns:minmax(245px,.72fr) minmax(0,2.5fr);grid-template-rows:34px minmax(510px,1fr) 205px;gap:0;padding:16px;background-color:#303a3e;background-image:linear-gradient(#ffffff0a 1px,transparent 1px),linear-gradient(90deg,#ffffff0a 1px,transparent 1px),radial-gradient(ellipse at 45% 30%,#647078 0%,#303a40 62%,#202a32 100%);background-size:36px 36px,36px 36px,100% 100%}
+.vo-executive-zone,.vo-main-floor,.vo-collab-zone,.vo-break-zone{border:0;border-radius:0;box-shadow:none;padding:16px;background:transparent}
+.vo-executive-zone{border-right:5px solid #8e7968;border-bottom:5px solid #8e7968;background:linear-gradient(135deg,#3d3935aa,#202a30aa);outline:1px solid #b18c70;outline-offset:-7px}
+.vo-main-floor{border-bottom:5px solid #8b8174;background:linear-gradient(180deg,#35444aaa,#28343aaa);outline:1px solid #81909a;outline-offset:-7px}
+.vo-floor-sign{padding:4px 12px 12px;border-bottom:1px solid #c2b29b55}
+.vo-station-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(195px,1fr));gap:16px 24px;padding:18px 12px 8px;background:repeating-linear-gradient(90deg,transparent 0 32%,#ffffff08 32.1% 32.3%,transparent 32.4% 100%)}
+.vo-station{min-height:190px;padding:0 6px 8px;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:visible}
+.vo-station:hover,.vo-station:focus-visible{transform:translateY(-2px);border:0;background:transparent;box-shadow:none;outline:none}
+.vo-station.chief-station{width:100%;min-height:205px;border:0;background:transparent}
+.vo-task-bubble{max-width:90%;min-height:24px;padding:5px 8px;background:#17232bef;border-color:#93a2a8;font-size:8px}
+.vo-task-bubble:after{background:#17232b}
+.vo-monitor{width:86px;height:43px;margin-top:9px;background:linear-gradient(145deg,#071823,#0b3543);border-color:#829ba3}
+.vo-monitor i{width:22px;height:21px}
+.vo-desk-surface{width:100%;height:31px;margin-top:-1px;border:1px solid #b18c69;background:linear-gradient(90deg,#624735,#9b7251 48%,#644834);box-shadow:0 7px 8px #0008}
+.vo-keyboard{width:45px;height:8px}
+.vo-chair{width:38px;height:18px;margin-top:2px;border-color:#8a9aa2;background:#31414c}
+.vo-robot{margin-top:-7px}
+.vo-station-label{margin-top:3px;padding:3px 8px;border-radius:3px;background:#1a252bd9}
+.vo-collab-zone{border-top:5px solid #8b8174;border-right:5px solid #8b8174;background:linear-gradient(135deg,#3d3935aa,#252d31aa);outline:1px solid #b18c70;outline-offset:-7px}
+.vo-break-zone{border-top:5px solid #9b7b91;border-left:5px solid #9b7b91;background:linear-gradient(135deg,#382d3eaa,#24232faa);outline:1px solid #b18caa;outline-offset:-7px}
+.vo-corridor{left:29%;right:3%;top:58%;height:25px;border-top:1px solid #d4b58a66;border-bottom:1px solid #d4b58a66;background:#17232b55}
+.vo-chief-board{margin-top:22px;border-radius:2px;box-shadow:0 5px 12px #0005}
+.vo-office-footer{border-top:1px solid #3b4c59}
+@media(max-width:900px){.vo-office-scene{grid-template-columns:1fr;grid-template-rows:34px auto auto auto auto;padding:10px}.vo-executive-zone,.vo-main-floor,.vo-collab-zone,.vo-break-zone{border:0;border-bottom:4px solid #817d78;outline:1px solid #8d999d;outline-offset:-5px}.vo-station-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:auto;padding:12px 5px}.vo-corridor{display:none}}
+@media(max-width:600px){.vo-station-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.vo-station{min-height:175px}.vo-break-interior{grid-template-columns:75px minmax(0,1fr)}}
