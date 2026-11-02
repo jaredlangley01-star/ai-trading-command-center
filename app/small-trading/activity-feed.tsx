@@ -8,7 +8,10 @@ function detail(event: EventItem) {
   const message = typeof p.message === "string" ? p.message : "";
   const status = typeof p.status === "string" ? p.status : "";
   const signals = Array.isArray(p.signals) ? p.signals.length : 0;
-  if (event.event_type === "OBSERVATION_CYCLE") return [symbol, status, signals ? signals + " strategy evaluations" : ""].filter(Boolean).join(" · ");
+  const market = p.market && typeof p.market === "object" ? p.market as Record<string, unknown> : {};
+  const price = typeof market.price === "number" ? market.price.toFixed(2) : null;
+  const source = typeof market.source === "string" ? market.source : "";
+  if (event.event_type === "OBSERVATION_CYCLE") return [symbol, price ? "Price " + price : "", source, status, signals ? signals + " strategy evaluations" : ""].filter(Boolean).join(" · ");
   if (event.event_type === "OBSERVATION_ERROR") return [symbol, typeof p.error_type === "string" ? p.error_type : "Worker error", message].filter(Boolean).join(" · ");
   if (event.event_type === "HEARTBEAT") return [typeof p.component === "string" ? p.component : "Worker", status, message].filter(Boolean).join(" · ");
   return Object.entries(p).slice(0, 3).map(([k, v]) => k + ": " + String(v)).join(" · ");
