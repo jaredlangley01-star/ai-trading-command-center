@@ -12,6 +12,13 @@ from .api_runtime import build_dashboard_server_from_environment
 from .worker import build_worker_from_environment
 
 
+def configure_api_environment():
+    """Bind the API to the host's public web port while retaining token auth."""
+    os.environ.setdefault("SMALL_TRADING_API_HOST", "0.0.0.0")
+    if os.getenv("PORT") and not os.getenv("SMALL_TRADING_API_PORT"):
+        os.environ["SMALL_TRADING_API_PORT"] = os.environ["PORT"]
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     api_server = None
@@ -25,9 +32,7 @@ def main():
         # Both processes open the same configured SQLite path. This is safe
         # here because they run on one host and one persistent disk.
         worker, worker_store = build_worker_from_environment()
-        os.environ.setdefault("SMALL_TRADING_API_HOST", "0.0.0.0")
-        if os.getenv("PORT") and not os.getenv("SMALL_TRADING_API_PORT"):
-            os.environ["SMALL_TRADING_API_PORT"] = os.environ["PORT"]
+        configure_api_environment()
         api_server, api_store = build_dashboard_server_from_environment()
 
         def request_shutdown(signum, _frame):
@@ -44,7 +49,7 @@ def main():
         worker_thread.start()
         logging.info(
             "combined PAPER observation app started: api=%s:%s symbols=%s interval_seconds=%d execution_enabled=false",
-            *api_server.server_address,
+            *api_server.server_address[:2],
             ",".join(worker.symbols),
             worker.interval_seconds,
         )
