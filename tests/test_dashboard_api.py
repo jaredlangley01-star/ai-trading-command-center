@@ -114,3 +114,31 @@ def test_events_endpoint_is_read_only_and_limits_results():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_market_endpoint_reports_latest_observation_and_freshness():
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    class MarketEventStore:
+        def list_events(self, limit):
+            return [
+                {"id": 9, "event_type": "OBSERVATION_CYCLE", "created_at": now,
+                 "payload": {"symbol": "AAPL", "market": {"price": 205.5, "source": "ALPACA_IEX", "timestamp": now, "volume": 500}}},
+                {"id": 8, "event_type": "OBSERVATION_CYCLE", "created_at": now,
+                 "payload": {"symbol": "AAPL", "market": {"price": 204.5, "source": "ALPACA_IEX", "timestamp": now, "volume": 450}}},
+            ]
+    server = create_dashboard_server(Portfolio(), Health(), port=0, event_store=MarketEventStore())
+    thread = _serve(server)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/api/market") as response:
+            payload = json.loads(response.read())
+        assert payload["status"] == "FRESH"
+        assert len(payload["observations"]) == 1
+        assert payload["observations"][0]["price"] == 205.5
+        assert payload["observations"][0]["source"] == "ALPACA_IEX"
+        assert payload["observations"][0]["freshness"] == "FRESH"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
