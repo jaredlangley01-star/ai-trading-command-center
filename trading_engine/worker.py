@@ -1,9 +1,12 @@
-"""Observation-only worker runtime with persistent audit events and heartbeats."""
+"""Observation worker with transparent, non-executing risk previews."""
 import os
+from datetime import timezone
 from .cycle import ObservationCycle
 from .health import Heartbeat
 from .scheduler import CycleScheduler
 from .storage import SQLiteStore
+from .models import Side, TradeProposal
+from .risk import RiskContext, RiskManager, RiskLimits
 
 
 class ObservationWorker:
@@ -17,12 +20,46 @@ class ObservationWorker:
         self.interval_seconds = interval_seconds
         self.heartbeat = Heartbeat(store, component="small-trading-observation-worker")
         self.scheduler = CycleScheduler(self._run_symbol, self.symbols, interval_seconds)
+        self.risk_manager = RiskManager()
 
     def _agent_event(self, agent, phase, status, symbol, summary, details=None):
         self.store.append_event("AGENT_ACTIVITY", {
             "agent": agent, "phase": phase, "status": status, "symbol": symbol,
             "summary": summary, "details": details or {}, "execution_enabled": False,
         })
+
+    def _risk_preview(self, signal, price, symbol, observed_at):
+        if signal.side is None:
+            return {"status": "NOT_APPLICABLE", "reason": "NO_DIRECTIONAL_SIGNAL", "approved_quantity": 0, "estimated_loss": 0.0}
+        stop_distance = price * 0.01
+        if signal.side == Side.BUY:
+            stop_loss, take_profit = price - stop_distance, price + (2 * stop_distance)
+        else:
+            stop_loss, take_profit = price + stop_distance, price - (2 * stop_distance)
+        limits = self.risk_manager.limits
+        by_risk = int(limits.max_loss_per_trade // stop_distance) if stop_distance > 0 else 0
+        by_value = int(limits.max_position_value // price) if price > 0 else 0
+        quantity = max(1, min(by_risk, by_value))
+        proposal = TradeProposal(
+            symbol=symbol, side=signal.side, entry=price, stop_loss=stop_loss,
+            take_profit=take_profit, quantity=quantity, strategy=signal.strategy,
+            created_at=observed_at, mode="PAPER",
+        )
+        # Until broker positions and daily P&L are reconciled, never mark a
+        # proposal approved. This preview cannot submit an order.
+        decision = self.risk_manager.evaluate(
+            proposal, RiskContext(paper_mode=True, portfolio_context_verified=False)
+        )
+        return {
+            "status": decision.status.value,
+            "reason": decision.reason,
+            "proposed_quantity": quantity,
+            "approved_quantity": decision.approved_quantity,
+            "estimated_loss": round(quantity * stop_distance, 4),
+            "entry": price, "stop_loss": round(stop_loss, 4),
+            "take_profit": round(take_profit, 4),
+            "assumptions": "Illustrative 1% stop / 2R target; portfolio context not verified",
+        }
 
     def _run_symbol(self, symbol):
         self._agent_event("chief_orchestrator", "CYCLE_STARTED", "WORKING", symbol,
@@ -41,15 +78,29 @@ class ObservationWorker:
             self._agent_event("research", "DATA_CHECK_COMPLETED", research_status, symbol,
                               report.message, {"market": market})
             if report.status == "READY":
-                signal_rows = [
-                    {"strategy": getattr(signal, "strategy", "unknown"),
-                     "status": "NO_SIGNAL" if getattr(signal, "side", None) is None else signal.side.value,
-                     "score": getattr(signal, "score", 0.0),
-                     "reason": getattr(signal, "reason", "")}
-                    for signal in report.signals
-                ]
+                signal_rows = []
+                risk_reviews = []
+                for signal in report.signals:
+                    risk = self._risk_preview(signal, report.observed_price, symbol, report.created_at)
+                    row = {
+                        "strategy": signal.strategy,
+                        "status": "NO_SIGNAL" if signal.side is None else signal.side.value,
+                        "score": signal.score, "reason": signal.reason, "risk": risk,
+                    }
+                    signal_rows.append(row)
+                    if signal.side is not None:
+                        risk_reviews.append({"strategy": signal.strategy, **risk})
+                        self._agent_event(
+                            "risk_manager", "PRELIMINARY_REVIEW", "BLOCKED",
+                            symbol, "Trade candidate blocked pending verified portfolio context",
+                            {"strategy": signal.strategy, "signal": signal.side.value, "risk": risk},
+                        )
                 self._agent_event("small_trading", "STRATEGIES_EVALUATED", "COMPLETED", symbol,
                                   "Evaluated four baseline strategies", {"signals": signal_rows})
+                if risk_reviews:
+                    self._agent_event("risk_manager", "RISK_REVIEWS_COMPLETED", "BLOCKED", symbol,
+                                      "Reviewed directional signals; none approved because portfolio context is not verified",
+                                      {"reviews": risk_reviews})
             else:
                 signal_rows = []
                 self._agent_event("small_trading", "STRATEGIES_SKIPPED", "BLOCKED", symbol,
