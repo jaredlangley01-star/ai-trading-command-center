@@ -175,3 +175,8 @@ This remains observation-only. No live/paper order submission is enabled by this
 Added an authenticated GET-only /api/market endpoint that reads recent observation events and reports the latest recorded bar per symbol, its source, timestamp, price, age and FRESH/STALE state. The dashboard now polls and displays this information, using the same 120-second freshness threshold as the Research Agent. Missing data is shown as UNKNOWN rather than a fabricated feed status. Added an API test for latest-per-symbol selection and freshness.
 
 The endpoint reports the latest data already recorded by the worker; it does not itself fetch market data or guarantee that the worker is running. Alpaca IEX and fixture data remain distinguishable by source. CI verification is pending.
+
+
+## Milestone 19: authoritative US market session clock
+
+Added a read-only Alpaca Paper API clock reader (GET /v2/clock), a protected dashboard API route, and a dashboard display for OPEN/CLOSED/UNKNOWN plus next open and close in US Eastern Time. This deliberately avoids estimating exchange sessions from weekdays, which would mislabel market holidays and exceptional closures. The clock requires an Alpaca Paper connection; without credentials the UI correctly displays UNKNOWN. Tests cover the clock adapter and API route. CI verification is pending.
