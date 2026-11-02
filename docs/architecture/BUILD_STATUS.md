@@ -82,3 +82,13 @@ Added a Node.js/TypeScript CI job alongside the Python engine tests. The Python 
 - The portfolio simulator is not reconciled accounting; its cash and P&L must not be treated as an account statement.
 - No live trading is enabled or implemented in this rebuild.
 - Next: finish frontend CI validation, wire a safe read-only data bridge, then research and verify market-data/broker eligibility and genuinely free hosting options for a South African user.
+
+## Milestone 9: Alpaca IEX market-data adapter
+
+Added an authenticated, read-only adapter for Alpaca's stock-bars API. It defaults to and enforces the IEX feed, requires credentials from environment variables, normalizes timestamps to UTC, returns chronological bar windows, and distinguishes missing data, authentication failures, rate limits and network errors. It cannot submit broker orders.
+
+The adapter has automated tests for missing credentials, rejection of non-IEX feeds, snapshot parsing and empty data. CI is running for this change.
+
+Broker/data research: Alpaca documents that anyone globally can create a paper-only account, which is restricted to IEX market data. Alpaca's free Basic equity data is IEX-only, with 30 websocket symbol subscriptions and 200 historical API calls per minute. IEX is not the consolidated all-exchange US market feed. Account and service eligibility should still be confirmed during signup. See official docs: https://docs.alpaca.markets/us/docs/paper-trading and https://docs.alpaca.markets/us/docs/about-market-data-api.
+
+Hosting research: Render free web services sleep after 15 minutes of inactivity and have ephemeral local filesystems; Vercel Hobby cron runs only once per day; Cloudflare Workers free limits include 100,000 requests/day but only 10ms CPU per request. These constraints mean none should be presented as a reliable always-on trading worker. A free-first UI may be possible, but reliable 24/7 execution may ultimately require a paid always-on worker or a carefully constrained serverless design. No service has been provisioned and no costs incurred.
