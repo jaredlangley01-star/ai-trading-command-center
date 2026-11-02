@@ -110,3 +110,14 @@ CI run 41444205207 passed both Python tests and dashboard type-check before this
 - No hosted worker, deployment, or cloud resource provisioned.
 - No orders placed; live trading is not implemented.
 - Strategy evaluators remain baseline rules, not validated profitable strategies.
+
+
+## Milestone 12: observation-only worker runtime
+
+Added a persistent-process worker that scans configured symbols, runs the existing observation cycle, records strategy signals and errors as SQLite events, and writes health heartbeats. It supports a one-cycle diagnostic and a recurring scheduler loop. The worker has no execution gateway and cannot submit orders. The Alpaca provider is IEX-only and read-only.
+
+Configuration is server-side: APCA_API_KEY_ID, APCA_API_SECRET_KEY, SMALL_TRADING_SYMBOLS, SMALL_TRADING_SCAN_INTERVAL_SECONDS, and SMALL_TRADING_DATABASE_PATH. The worker is not deployed and has not yet been run against a connected Alpaca account. CI is pending for the new worker tests.
+
+## Verification update
+
+CI run 41444444296 passed the dashboard API security guard, existing Python tests and dashboard type-check. The new worker code and tests were committed after that run and require their own successful CI run.
