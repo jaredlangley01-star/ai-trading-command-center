@@ -180,3 +180,10 @@ The endpoint reports the latest data already recorded by the worker; it does not
 ## Milestone 19: authoritative US market session clock
 
 Added a read-only Alpaca Paper API clock reader (GET /v2/clock), a protected dashboard API route, and a dashboard display for OPEN/CLOSED/UNKNOWN plus next open and close in US Eastern Time. This deliberately avoids estimating exchange sessions from weekdays, which would mislabel market holidays and exceptional closures. The clock requires an Alpaca Paper connection; without credentials the UI correctly displays UNKNOWN. Tests cover the clock adapter and API route. CI verification is pending.
+
+
+## Milestone 20: two-service container deployment bundle
+
+Added a Docker Compose deployment definition for the observation worker and read-only API. Both services use the same named persistent volume and database path; the API is exposed only on the internal Compose network, not published to the host. Added a placeholder-only environment template, ensured the real local environment file remains Git-ignored, documented private-network requirements for the Next.js proxy, and added a CI Compose configuration validation job.
+
+This is a reproducible deployment bundle for a single Docker host, not a hosted deployment. No cloud provider, domain, paid service, broker credentials or account has been activated. Compose validation and the updated application checks are pending.
