@@ -21,8 +21,8 @@ services:
         value: AAPL,MSFT,NVDA
       - key: SMALL_TRADING_SCAN_INTERVAL_SECONDS
         value: "60"
-      - key: APCA_API_DATA_FEED
-        value: IEX
+      - key: APCA_DATA_FEED
+        value: iex
       - key: APCA_API_KEY_ID
         sync: false
       - key: APCA_API_SECRET_KEY
