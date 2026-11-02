@@ -15,3 +15,10 @@ def test_daily_loss_limit_blocks_trade():
     assert RiskManager().evaluate(proposal(),RiskContext(daily_realized_pnl=-25)).reason=="DAILY_LOSS_LIMIT_REACHED"
 def test_rejects_proposed_size_above_risk_limit():
     result=RiskManager(RiskLimits(max_loss_per_trade=2)).evaluate(proposal(),RiskContext()); assert result.status==DecisionStatus.REJECTED and result.reason=="PROPOSED_SIZE_EXCEEDS_LIMITS"
+
+
+
+def test_risk_manager_blocks_approval_without_verified_portfolio_context():
+    result = RiskManager().evaluate(proposal(), RiskContext(portfolio_context_verified=False))
+    assert result.status == DecisionStatus.REJECTED
+    assert result.reason == "PORTFOLIO_CONTEXT_UNVERIFIED"
