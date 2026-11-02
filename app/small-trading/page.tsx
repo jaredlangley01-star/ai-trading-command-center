@@ -1,4 +1,5 @@
 import Link from "next/link";
+import LiveSystemStatus from "./live-system-status";
 
 const metrics = [
   { label: "Account balance", value: "—", note: "Waiting for broker connection" },
@@ -54,7 +55,9 @@ export default function SmallTradingDashboard() {
         </section>
 
         <div className="st-two-col">
-          <section className="st-card st-panel" id="positions">
+          <LiveSystemStatus />
+
+        <section className="st-card st-panel" id="positions">
             <div className="st-panel-head"><div><h2>Open positions</h2><p>Broker-confirmed positions only</p></div><span className="st-count">0</span></div>
             <div className="st-empty"><div className="st-empty-icon">⌁</div><b>No positions to display</b><p>Positions will show here once a paper broker is connected and reconciled.</p></div>
           </section>
