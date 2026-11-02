@@ -23,6 +23,10 @@ def test_worker_records_observation_events_and_heartbeat_without_execution():
     assert cycle["payload"]["market"]["timestamp"] is not None
     assert len(cycle["payload"]["signals"]) == 4
     assert any(event["event_type"] == "HEARTBEAT" for event in events)
+    agent_events = [event for event in events if event["event_type"] == "AGENT_ACTIVITY"]
+    assert {event["payload"]["agent"] for event in agent_events} == {"chief_orchestrator", "research", "small_trading"}
+    assert any(event["payload"]["phase"] == "STRATEGIES_EVALUATED" for event in agent_events)
+    assert all(event["payload"]["execution_enabled"] is False for event in agent_events)
     assert HealthSnapshot(store).build()["component"] == "small-trading-observation-worker"
     store.close()
 
@@ -48,6 +52,7 @@ def test_worker_records_provider_errors_and_continues():
     assert worker.run_once() == [None]
     events = store.list_events(10)
     error = next(event for event in events if event["event_type"] == "OBSERVATION_ERROR")
+    assert any(event["event_type"] == "AGENT_ACTIVITY" and event["payload"]["status"] == "ERROR" for event in events)
     assert error["payload"]["execution_enabled"] is False
     assert HealthSnapshot(store).build()["status"] == "ERROR"
     store.close()
