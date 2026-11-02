@@ -18,6 +18,10 @@ def test_worker_records_observation_events_and_heartbeat_without_execution():
     cycle = next(event for event in events if event["event_type"] == "OBSERVATION_CYCLE")
     assert cycle["payload"]["symbol"] == "AAPL"
     assert cycle["payload"]["execution_enabled"] is False
+    assert cycle["payload"]["market"]["price"] == 106
+    assert cycle["payload"]["market"]["source"] == "IN_MEMORY_FIXTURE"
+    assert cycle["payload"]["market"]["timestamp"] is not None
+    assert len(cycle["payload"]["signals"]) == 4
     assert any(event["event_type"] == "HEARTBEAT" for event in events)
     assert HealthSnapshot(store).build()["component"] == "small-trading-observation-worker"
     store.close()
