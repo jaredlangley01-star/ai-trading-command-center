@@ -5,6 +5,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from urllib.parse import urlsplit, parse_qs
+from datetime import datetime, timezone
 
 
 def _is_loopback(host):
@@ -48,6 +49,37 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                 except (TypeError, ValueError):
                     return self._send(400, {"error": "INVALID_LIMIT", "message": "limit must be between 1 and 100"})
                 return self._send(200, {"events": event_store.list_events(limit)})
+            if parsed.path == "/api/market":
+                if event_store is None:
+                    return self._send(503, {"status": "UNKNOWN", "observations": []})
+                latest = {}
+                for event in event_store.list_events(100):
+                    if event.get("event_type") != "OBSERVATION_CYCLE":
+                        continue
+                    payload = event.get("payload") or {}
+                    symbol = payload.get("symbol")
+                    market = payload.get("market") or {}
+                    stamp = market.get("timestamp")
+                    if not isinstance(symbol, str) or not isinstance(stamp, str) or symbol in latest:
+                        continue
+                    try:
+                        observed_at = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                        if observed_at.tzinfo is None:
+                            observed_at = observed_at.replace(tzinfo=timezone.utc)
+                        age = max(0.0, (datetime.now(timezone.utc) - observed_at.astimezone(timezone.utc)).total_seconds())
+                    except ValueError:
+                        continue
+                    latest[symbol] = {
+                        "symbol": symbol, "price": market.get("price"),
+                        "source": market.get("source") or "UNKNOWN",
+                        "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
+                        "age_seconds": round(age, 1),
+                        "freshness": "FRESH" if age <= 120 else "STALE",
+                        "volume": market.get("volume"),
+                    }
+                observations = list(latest.values())
+                overall = "UNKNOWN" if not observations else ("STALE" if any(x["freshness"] == "STALE" for x in observations) else "FRESH")
+                return self._send(200, {"status": overall, "max_age_seconds": 120, "observations": observations})
             if parsed.path == "/api/broker":
                 if broker_snapshot is None:
                     return self._send(503, {"mode": "NOT_CONNECTED", "read_only": True})
