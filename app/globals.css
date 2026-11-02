@@ -5354,3 +5354,36 @@ body {
 @media(max-width:1100px){.orbit-topbar{flex-wrap:wrap}.orbit-topbar nav{order:3;width:100%;justify-content:center}.orbit-layout{grid-template-columns:150px minmax(0,1fr)}.orbit-agent{width:140px}.orbit-trade,.orbit-portfolio{left:3%}.orbit-risk,.orbit-strategy{right:3%}}
 @media(max-width:760px){.orbit-layout{grid-template-columns:1fr}.orbit-sidebar{display:none}.orbit-main{padding:12px}.orbit-scene{height:680px;max-height:none;min-height:620px}.orbit-path.path-outer{width:94%;height:76%}.orbit-path.path-middle{width:76%;height:60%}.orbit-path.path-inner{width:55%;height:42%}.orbit-agent{width:122px;min-height:132px;padding:7px 5px}.orbit-agent-info>b{font-size:9px}.orbit-agent-info>small{font-size:7px}.orbit-research{top:3%}.orbit-strategy{right:1%;top:20%}.orbit-risk{right:1%;bottom:12%}.orbit-trade{left:1%;top:20%}.orbit-portfolio{left:1%;bottom:12%}.orbit-core{width:175px;height:190px}.core-bot{height:90px}.orbit-monitor{bottom:1%}.orbit-lower{grid-template-columns:1fr}.orbit-bottom-stats{grid-template-columns:repeat(3,1fr)}.orbit-bottom-stats>div:nth-child(3){border-right:0}.orbit-bottom-stats>div:nth-child(n+4){border-top:1px solid #25384c}.orbit-heading{align-items:flex-start}.orbit-heading p{max-width:430px}}
 @media(max-width:480px){.orbit-topbar{padding:10px}.orbit-topbar nav{overflow:auto;justify-content:flex-start}.orbit-topbar nav span{padding:7px 9px;font-size:9px}.orbit-mode{width:100%;justify-content:flex-start}.orbit-scene{height:650px;min-height:650px}.orbit-agent{width:105px;min-height:120px}.orbit-agent .orbit-bot{transform:scale(.85);transform-origin:top center;height:52px}.orbit-agent-info>small{max-width:95px;font-size:6px}.orbit-agent-info>b{font-size:8px}.orbit-agent-info>em{font-size:7px}.orbit-icon{width:22px;height:22px;font-size:13px}.orbit-core{width:148px;height:165px}.core-bot{height:72px}.core-bot .orbit-bot{transform:scale(1.45);transform-origin:center 75%}.orbit-core>b{font-size:10px}.orbit-core>small{font-size:8px}.orbit-core>em{font-size:7px}.orbit-research{top:2%}.orbit-trade,.orbit-strategy{top:20%}.orbit-risk,.orbit-portfolio{bottom:10%}.orbit-monitor{bottom:0}.orbit-bottom-stats{grid-template-columns:repeat(2,1fr)}.orbit-bottom-stats>div{border-bottom:1px solid #25384c}.orbit-bottom-stats>div:nth-child(2n){border-right:0}.orbit-activity-panel>button{grid-template-columns:10px 1fr auto}.orbit-activity-panel>button>span{grid-column:2/-1;grid-row:2}.orbit-heading h1{font-size:16px}.orbit-heading p{font-size:9px}}
+
+
+/* Solar-system view sits inside the existing dashboard shell: no nested nav/sidebar. */
+.orbit-command{width:100%;display:block;min-width:0;border:1px solid #26384d;border-radius:16px;overflow:hidden;background:linear-gradient(145deg,#0b1422,#080e19)}
+.orbit-layout{display:block;min-height:0}
+.orbit-main{width:100%;min-width:0;padding:18px}
+.orbit-heading{padding:0 2px 14px;margin:0;align-items:flex-end}
+.orbit-heading h1{font-size:20px;letter-spacing:-.025em}
+.orbit-heading p{font-size:11px;max-width:720px}
+.orbit-scene{height:clamp(610px,68vw,790px);max-height:790px;min-height:610px;border-radius:16px;background:radial-gradient(ellipse at 50% 50%,#192943 0%,#0b172a 49%,#060c17 100%)}
+.orbit-path.path-outer{width:min(76%,980px);height:86%}
+.orbit-path.path-middle{width:min(61%,790px);height:69%}
+.orbit-path.path-inner{width:min(44%,570px);height:49%}
+.orbit-core{width:246px;height:252px}
+.core-bot{height:126px;width:145px}
+.core-bot .orbit-bot{transform:scale(2.05);transform-origin:center 75%}
+.orbit-agent{width:178px;min-height:164px;padding:13px 10px 11px;border-radius:17px;background:linear-gradient(155deg,#1a2b42f5,#0b1525f5)}
+.orbit-agent .orbit-bot{transform:scale(1.08);transform-origin:top center;height:67px}
+.orbit-agent-info>b{font-size:11px}
+.orbit-agent-info>small{font-size:9px;max-width:158px;min-height:27px}
+.orbit-agent-info>em{font-size:8px}
+.orbit-research{top:2%}
+.orbit-strategy{right:7%;top:18%}
+.orbit-risk{right:7%;bottom:12%}
+.orbit-monitor{bottom:1%}
+.orbit-portfolio{left:7%;bottom:12%}
+.orbit-trade{left:7%;top:18%}
+.orbit-scene-caption{font-size:9px;bottom:8px}
+.orbit-bottom-stats{margin-top:14px}
+.orbit-lower{margin-top:14px}
+@media(max-width:1100px){.orbit-main{padding:14px}.orbit-agent{width:150px;min-height:145px}.orbit-agent .orbit-bot{transform:scale(.95);height:60px}.orbit-agent-info>b{font-size:10px}.orbit-agent-info>small{font-size:8px;max-width:135px}.orbit-core{width:210px;height:220px}.core-bot{height:108px}.core-bot .orbit-bot{transform:scale(1.8)}}
+@media(max-width:760px){.orbit-main{padding:10px}.orbit-scene{height:690px;min-height:690px}.orbit-agent{width:122px;min-height:132px}.orbit-agent .orbit-bot{transform:scale(.85);height:52px}.orbit-core{width:175px;height:190px}.core-bot{height:90px}.core-bot .orbit-bot{transform:scale(1.45)}}
+@media(max-width:480px){.orbit-command{border-radius:10px}.orbit-main{padding:9px}.orbit-heading{align-items:flex-start;gap:8px}.orbit-heading>span{font-size:7px}.orbit-scene{height:650px;min-height:650px}.orbit-agent{width:105px;min-height:120px}.orbit-core{width:148px;height:165px}}
