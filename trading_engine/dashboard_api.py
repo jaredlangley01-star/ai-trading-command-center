@@ -74,7 +74,12 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                             "score": signal.get("score", 0.0),
                             "reason": signal.get("reason", ""),
                             "execution_enabled": False,
-                            "risk_status": "NOT_EVALUATED",
+                            "risk_status": (signal.get("risk") or {}).get("status", "NOT_REVIEWED"),
+                            "risk_reason": (signal.get("risk") or {}).get("reason", "NOT_REVIEWED"),
+                            "proposed_quantity": (signal.get("risk") or {}).get("proposed_quantity", 0),
+                            "estimated_loss": (signal.get("risk") or {}).get("estimated_loss", 0.0),
+                            "stop_loss": (signal.get("risk") or {}).get("stop_loss"),
+                            "take_profit": (signal.get("risk") or {}).get("take_profit"),
                         })
                 return self._send(200, {"status": "OBSERVATION_ONLY", "decisions": decisions[:200]})
             if parsed.path == "/api/market":
