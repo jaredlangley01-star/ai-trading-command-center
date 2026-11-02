@@ -4,6 +4,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
+from urllib.parse import urlsplit, parse_qs
 
 
 def _is_loopback(host):
@@ -13,7 +14,7 @@ def _is_loopback(host):
         return host.lower() == "localhost"
 
 
-def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765, access_token=None):
+def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765, access_token=None, event_store=None):
     token = access_token or os.getenv("SMALL_TRADING_API_TOKEN")
     if not _is_loopback(host) and not token:
         raise ValueError("NON_LOCAL_BIND_REQUIRES_SMALL_TRADING_API_TOKEN")
@@ -35,7 +36,19 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                 expected = f"Bearer {token}"
                 if not hmac.compare_digest(supplied, expected):
                     return self._send(401, {"error": "UNAUTHORIZED"})
-            if self.path == "/api/broker":
+            parsed = urlsplit(self.path)
+            if parsed.path == "/api/events":
+                if event_store is None:
+                    return self._send(503, {"error": "EVENT_STORE_NOT_CONFIGURED", "events": []})
+                try:
+                    raw_limit = parse_qs(parsed.query).get("limit", ["50"])[0]
+                    limit = int(raw_limit)
+                    if not 1 <= limit <= 100:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    return self._send(400, {"error": "INVALID_LIMIT", "message": "limit must be between 1 and 100"})
+                return self._send(200, {"events": event_store.list_events(limit)})
+            if parsed.path == "/api/broker":
                 if broker_snapshot is None:
                     return self._send(503, {"mode": "NOT_CONNECTED", "read_only": True})
                 try:
@@ -43,11 +56,11 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                     return self._send(200, payload)
                 except Exception:
                     return self._send(503, {"mode": "UNAVAILABLE", "read_only": True, "error": "BROKER_READ_FAILED"})
-            if self.path == "/api/health":
+            if parsed.path == "/api/health":
                 return self._send(200, health_snapshot.build())
-            if self.path == "/api/portfolio":
+            if parsed.path == "/api/portfolio":
                 return self._send(200, portfolio_snapshot.build())
-            if self.path == "/api/status":
+            if parsed.path == "/api/status":
                 health = health_snapshot.build()
                 portfolio = portfolio_snapshot.build()
                 return self._send(200, {
