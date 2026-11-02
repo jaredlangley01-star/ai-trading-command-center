@@ -63,3 +63,22 @@ Added a read-only portfolio snapshot for open simulated positions, gross exposur
 Important accounting limitation: the simulator does not settle cash when a position is closed. The portfolio snapshot therefore explicitly labels broker cash as unsettled and reconciliation as NOT_RECONCILED. It does not calculate or display account equity. This is not a broker account statement.
 
 The heartbeat classes are library components only; no hosted process is currently recording heartbeats. The dashboard/API, real quote source, real broker PAPER connection, production scheduling, deployment and test execution remain outstanding. No live trading path was added.
+
+## Milestone 7: read-only dashboard API
+
+Added a small standard-library HTTP API with read-only /api/status, /api/portfolio and /api/health routes. It has no order submission, modification or cancellation routes. Added an automated test that verifies the API reports simulator-only mode and rejects an orders route.
+
+## Milestone 8: first dashboard interface
+
+Added a separate Next.js page at /small-trading. The interface includes portfolio summary placeholders, open positions, system health, six agent roles and recent activity. It deliberately displays unknown/not-connected states instead of invented account values. It clearly states PAPER SIMULATOR and LIVE LOCKED. This is a frontend scaffold: it is not yet wired to the Python API, broker, market data or a deployed worker.
+
+Added a Node.js/TypeScript CI job alongside the Python engine tests. The Python test suite has passed. Frontend type-check/build validation is pending its first CI result.
+
+## Current limitations and next steps
+
+- Dashboard page is not yet connected to live service data.
+- The Python API is a local library/server factory and is not deployed or hosted.
+- No real market-data feed or broker PAPER account is connected.
+- The portfolio simulator is not reconciled accounting; its cash and P&L must not be treated as an account statement.
+- No live trading is enabled or implemented in this rebuild.
+- Next: finish frontend CI validation, wire a safe read-only data bridge, then research and verify market-data/broker eligibility and genuinely free hosting options for a South African user.
