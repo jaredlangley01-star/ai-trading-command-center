@@ -1,9 +1,23 @@
-"""Local read-only JSON API for the dashboard; deliberately exposes no order routes."""
+"""Read-only dashboard API. Local-only unless protected by a bearer token."""
+import hmac
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
 
 
-def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765):
+def _is_loopback(host):
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return host.lower() == "localhost"
+
+
+def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765, access_token=None):
+    token = access_token or os.getenv("SMALL_TRADING_API_TOKEN")
+    if not _is_loopback(host) and not token:
+        raise ValueError("NON_LOCAL_BIND_REQUIRES_SMALL_TRADING_API_TOKEN")
+
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status, payload):
             body = json.dumps(payload, default=str).encode("utf-8")
@@ -11,10 +25,16 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
 
         def do_GET(self):
+            if token:
+                supplied = self.headers.get("Authorization", "")
+                expected = f"Bearer {token}"
+                if not hmac.compare_digest(supplied, expected):
+                    return self._send(401, {"error": "UNAUTHORIZED"})
             if self.path == "/api/broker":
                 if broker_snapshot is None:
                     return self._send(503, {"mode": "NOT_CONNECTED", "read_only": True})
