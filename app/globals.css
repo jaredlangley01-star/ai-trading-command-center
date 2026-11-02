@@ -5579,3 +5579,26 @@ body {
   .st-agent-rest-grid{grid-template-columns:1fr;gap:10px}
   .st-agent-rest-card{min-height:0}
 }
+
+
+/* Keep the Overview agent workspace content-height; do not stretch it to fill the dashboard viewport. */
+.orbit-command{
+  display:block !important;
+  height:fit-content !important;
+  min-height:0 !important;
+  max-height:none;
+  flex:0 0 auto !important;
+  align-self:start;
+}
+.orbit-command>.orbit-layout,
+.orbit-command .orbit-main{
+  height:auto !important;
+  min-height:0 !important;
+}
+.orbit-command .orbit-main{
+  display:block;
+}
+.orbit-command .orbit-lower{
+  align-content:start;
+  align-items:start;
+}
