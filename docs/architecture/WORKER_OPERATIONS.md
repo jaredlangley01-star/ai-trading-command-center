@@ -63,3 +63,19 @@ Start the read-only API as a separate container using the same durable volume an
     docker run --restart unless-stopped --env-file .env --mount type=volume,src=small-trading-data,dst=/data small-trading-worker:local small-trading-api
 
 The .env file is an operator-managed local example only; do not commit it or upload it to source control. On a hosted platform, use its encrypted environment/secret settings instead. The API should be reachable by the Next.js server proxy over a private network or authenticated HTTPS endpoint. Do not expose the Python API directly to the public internet without TLS termination and the bearer-token guard.
+
+
+## Two-service deployment bundle
+
+A Compose configuration is provided for a single Docker host:
+
+    cp .env.small-trading.example .env.small-trading
+    # Edit .env.small-trading locally and enter the Alpaca Paper credentials
+    # and a newly generated random API token.
+    docker compose -f docker-compose.small-trading.yml up -d --build
+
+The worker and API share one named durable Docker volume at /data. The API listens on the internal Compose network only; the file does not publish port 8765 to the public host. The Next.js server-side proxy must be placed on the same private network and use the API service address (http://dashboard-api:8765) with the same SMALL_TRADING_API_TOKEN. If the frontend is hosted separately, a private network or authenticated HTTPS reverse proxy is still required; do not expose the API port directly.
+
+The example environment file contains placeholders only. The real .env.small-trading is ignored by Git. Generate the API token locally and do not reuse the Alpaca key. Compose validation in CI checks configuration syntax, not successful broker connectivity, persistent-volume behavior on a particular host, TLS, network reachability, uptime, or market-data quality.
+
+This is a deployment recipe, not a deployed service. No cloud host, DNS, domain, paid plan, or broker account is provisioned by the repository.
