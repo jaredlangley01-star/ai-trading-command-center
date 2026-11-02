@@ -10,10 +10,11 @@ from .models import Side, TradeProposal
 from .risk import RiskContext, RiskManager
 from .positions import PositionLedger, PositionMonitoringAgent
 from .performance import PerformanceReportingAgent
+from .reconciliation import build_broker_reconciliation
 
 
 class ObservationWorker:
-    def __init__(self, cycle, store, symbols, interval_seconds=60):
+    def __init__(self, cycle, store, symbols, interval_seconds=60, broker_context_provider=None):
         normalized = tuple(dict.fromkeys(s.strip().upper() for s in symbols if s.strip()))
         if not normalized:
             raise ValueError("AT_LEAST_ONE_SYMBOL_REQUIRED")
@@ -21,6 +22,7 @@ class ObservationWorker:
         self.store = store
         self.symbols = normalized
         self.interval_seconds = interval_seconds
+        self.broker_context_provider = broker_context_provider
         self.heartbeat = Heartbeat(store, component="small-trading-observation-worker")
         self.scheduler = CycleScheduler(self._run_symbol, self.symbols, interval_seconds)
         self.risk_manager = RiskManager()
@@ -34,7 +36,54 @@ class ObservationWorker:
             "summary": summary, "details": details or {}, "execution_enabled": False,
         })
 
-    def _risk_preview(self, signal, price, symbol, observed_at):
+    def _broker_risk_context(self):
+        if self.broker_context_provider is None:
+            return RiskContext(portfolio_context_verified=False), {
+                "status": "BLOCKED", "reason": "BROKER_CONTEXT_NOT_CONFIGURED"
+            }
+        try:
+            snapshot = self.broker_context_provider()
+            validation = build_broker_reconciliation(snapshot)
+            account = snapshot.get("account", {}) if isinstance(snapshot, dict) else {}
+            positions = snapshot.get("positions", []) if isinstance(snapshot, dict) else []
+            orders = snapshot.get("open_orders", []) if isinstance(snapshot, dict) else []
+            try:
+                equity = float(account.get("equity"))
+                last_equity = float(account.get("last_equity"))
+                if not math.isfinite(equity) or not math.isfinite(last_equity):
+                    raise ValueError
+            except (TypeError, ValueError):
+                return RiskContext(portfolio_context_verified=False), {
+                    "status": "BLOCKED", "reason": "BROKER_DAILY_PNL_UNAVAILABLE"
+                }
+            if validation.get("status") != "BROKER_DATA_VERIFIED":
+                return RiskContext(portfolio_context_verified=False), validation
+            exposure = sum(abs(float(position["market_value"])) for position in positions)
+            context = RiskContext(
+                daily_realized_pnl=equity - last_equity,
+                open_positions=len(positions) + len(orders),
+                current_exposure=exposure,
+                paper_mode=True,
+                portfolio_context_verified=True,
+                # Deliberately false until the user authorizes explicit limits.
+                risk_limits_authorized=False,
+            )
+            safe_summary = {
+                "status": validation["status"],
+                "position_count": len(positions),
+                "open_order_count": len(orders),
+                "equity": equity,
+                "daily_pnl": round(equity - last_equity, 2),
+                "gross_exposure": round(exposure, 2),
+                "risk_limits_authorized": False,
+            }
+            return context, safe_summary
+        except Exception:
+            return RiskContext(portfolio_context_verified=False), {
+                "status": "BLOCKED", "reason": "BROKER_CONTEXT_READ_FAILED"
+            }
+
+    def _risk_preview(self, signal, price, symbol, observed_at, context=None):
         if signal.side is None:
             return {"status": "NOT_APPLICABLE", "reason": "NO_DIRECTIONAL_SIGNAL", "approved_quantity": 0, "estimated_loss": 0.0}
         stop_distance = price * 0.01
@@ -48,13 +97,9 @@ class ObservationWorker:
         quantity = min(by_risk, by_value)
         if quantity < 1:
             return {
-                "status": "REJECTED",
-                "reason": "POSITION_SIZE_BELOW_MINIMUM",
-                "proposed_quantity": 0,
-                "approved_quantity": 0,
-                "estimated_loss": 0.0,
-                "entry": price,
-                "stop_loss": round(stop_loss, 4),
+                "status": "REJECTED", "reason": "POSITION_SIZE_BELOW_MINIMUM",
+                "proposed_quantity": 0, "approved_quantity": 0, "estimated_loss": 0.0,
+                "entry": price, "stop_loss": round(stop_loss, 4),
                 "take_profit": round(take_profit, 4),
                 "assumptions": "Illustrative 1% stop / 2R target; size is below one whole share",
             }
@@ -63,20 +108,18 @@ class ObservationWorker:
             take_profit=take_profit, quantity=quantity, strategy=signal.strategy,
             created_at=observed_at, mode="PAPER",
         )
-        # Until broker positions and daily P&L are reconciled, never mark a
-        # proposal approved. This preview cannot submit an order.
         decision = self.risk_manager.evaluate(
-            proposal, RiskContext(paper_mode=True, portfolio_context_verified=False)
+            proposal, context or RiskContext(portfolio_context_verified=False)
         )
         return {
-            "status": decision.status.value,
-            "reason": decision.reason,
-            "proposed_quantity": quantity,
-            "approved_quantity": decision.approved_quantity,
+            "status": decision.status.value, "reason": decision.reason,
+            "proposed_quantity": quantity, "approved_quantity": decision.approved_quantity,
             "estimated_loss": round(quantity * stop_distance, 4),
             "entry": price, "stop_loss": round(stop_loss, 4),
             "take_profit": round(take_profit, 4),
-            "assumptions": "Illustrative 1% stop / 2R target; portfolio context not verified",
+            "portfolio_context_verified": bool(context and context.portfolio_context_verified),
+            "risk_limits_authorized": bool(context and context.risk_limits_authorized),
+            "assumptions": "Illustrative 1% stop / 2R target; risk preview only; no order execution",
         }
 
     def _run_symbol(self, symbol):
@@ -89,8 +132,7 @@ class ObservationWorker:
             market = {
                 "price": report.observed_price,
                 "timestamp": report.market_timestamp.isoformat() if report.market_timestamp else None,
-                "source": report.market_source,
-                "volume": report.volume,
+                "source": report.market_source, "volume": report.volume,
             }
             research_status = "READY" if report.status == "READY" else "BLOCKED"
             self._agent_event("research", "DATA_CHECK_COMPLETED", research_status, symbol,
@@ -112,13 +154,15 @@ class ObservationWorker:
                         self._agent_event("position_monitor", "POSITION_MARKED", "COMPLETED", symbol,
                                           "Simulated position remains open after price check",
                                           {"position_id": position.position_id, "mark_price": report.observed_price})
+                risk_context, broker_summary = self._broker_risk_context()
+                self._agent_event("risk_manager", "BROKER_CONTEXT_CHECK", broker_summary.get("status", "BLOCKED"),
+                                  symbol, "Checked read-only broker portfolio context", broker_summary)
                 signal_rows = []
                 risk_reviews = []
                 for signal in report.signals:
-                    risk = self._risk_preview(signal, report.observed_price, symbol, report.created_at)
+                    risk = self._risk_preview(signal, report.observed_price, symbol, report.created_at, risk_context)
                     row = {
-                        "strategy": signal.strategy,
-                        "status": "NO_SIGNAL" if signal.side is None else signal.side.value,
+                        "strategy": signal.strategy, "status": "NO_SIGNAL" if signal.side is None else signal.side.value,
                         "score": signal.score, "reason": signal.reason, "risk": risk,
                     }
                     signal_rows.append(row)
@@ -126,15 +170,15 @@ class ObservationWorker:
                         risk_reviews.append({"strategy": signal.strategy, **risk})
                         self._agent_event(
                             "risk_manager", "PRELIMINARY_REVIEW", "BLOCKED",
-                            symbol, "Trade candidate blocked pending verified portfolio context",
+                            symbol, "Trade candidate remains blocked; no order execution is available",
                             {"strategy": signal.strategy, "signal": signal.side.value, "risk": risk},
                         )
                 self._agent_event("small_trading", "STRATEGIES_EVALUATED", "COMPLETED", symbol,
                                   "Evaluated four baseline strategies", {"signals": signal_rows})
                 if risk_reviews:
                     self._agent_event("risk_manager", "RISK_REVIEWS_COMPLETED", "BLOCKED", symbol,
-                                      "Reviewed directional signals; none approved because portfolio context is not verified",
-                                      {"reviews": risk_reviews})
+                                      "Reviewed directional signals; none approved for execution",
+                                      {"reviews": risk_reviews, "broker_context": broker_summary})
             else:
                 signal_rows = []
                 self._agent_event("small_trading", "STRATEGIES_SKIPPED", "BLOCKED", symbol,
@@ -142,13 +186,13 @@ class ObservationWorker:
             payload = {
                 "symbol": report.symbol, "status": report.status, "message": report.message,
                 "created_at": report.created_at.isoformat(), "market": market,
-                "signals": signal_rows, "execution_enabled": False,
+                "signals": signal_rows, "broker_context": broker_summary if report.status == "READY" else None,
+                "execution_enabled": False,
             }
             self.store.append_event("OBSERVATION_CYCLE", payload)
             performance = self.performance_agent.snapshot()
             self._agent_event("performance_reporting", "LEDGER_SUMMARY", "COMPLETED", symbol,
-                              "Refreshed simulated ledger performance summary",
-                              performance)
+                              "Refreshed simulated ledger performance summary", performance)
             health_status = "OK" if report.status == "READY" else "DEGRADED"
             self.heartbeat.record(health_status, f"{symbol}:{report.status}")
             self._agent_event("chief_orchestrator", "CYCLE_COMPLETED", "COMPLETED", symbol,
@@ -182,6 +226,7 @@ def build_worker_from_environment():
     data_mode = os.getenv("SMALL_TRADING_DATA_MODE", "demo").strip().lower()
     store = SQLiteStore(database_path)
     try:
+        broker_context_provider = None
         if data_mode == "demo":
             demo_prices = {}
             for raw_symbol in symbols:
@@ -195,10 +240,16 @@ def build_worker_from_environment():
                 ]
             provider = InMemoryMarketDataProvider(demo_prices)
         elif data_mode == "alpaca_iex":
+            from .alpaca_paper_account import AlpacaPaperAccountReader
             provider = AlpacaIEXMarketDataProvider()
+            broker_reader = AlpacaPaperAccountReader()
+            broker_context_provider = broker_reader.snapshot
         else:
             raise ValueError("SMALL_TRADING_DATA_MODE_MUST_BE_demo_OR_alpaca_iex")
-        worker = ObservationWorker(ObservationCycle(provider), store, symbols, interval)
+        worker = ObservationWorker(
+            ObservationCycle(provider), store, symbols, interval,
+            broker_context_provider=broker_context_provider,
+        )
         return worker, store
     except Exception:
         store.close()
