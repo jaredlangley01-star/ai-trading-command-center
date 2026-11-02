@@ -14,8 +14,11 @@ class PaperExecutionGateway:
             raise PermissionError("PAPER_ONLY_GATE")
         if not client_order_id or not client_order_id.strip():
             raise ValueError("CLIENT_ORDER_ID_REQUIRED")
-        existing=[e for e in self.store.list_events(10000) if e["event_type"]=="ORDER_FILLED" and e["event_key"]==client_order_id]
-        if existing: return existing[0]["payload"]
+        existing=self.store.get_event_by_key(client_order_id)
+        if existing:
+            if existing["event_type"] != "ORDER_FILLED":
+                raise RuntimeError("IDEMPOTENCY_KEY_ALREADY_USED")
+            return existing["payload"]
         decision=self.risk.evaluate(proposal,context)
         self.store.append_event("RISK_DECISION",{
             "symbol":proposal.symbol,"strategy":proposal.strategy,
