@@ -11,6 +11,10 @@ def make_proposal(**changes):
     values.update(changes)
     return TradeProposal(**values)
 
+def test_context():
+    # Explicitly authorize only this isolated simulated-broker test fixture.
+    return RiskContext(portfolio_context_verified=True, risk_limits_authorized=True)
+
 def gateway():
     store=SQLiteStore(":memory:")
     broker=SimulatedPaperBroker(1000)
@@ -18,8 +22,8 @@ def gateway():
 
 def test_paper_gateway_records_simulated_fill_and_prevents_duplicate():
     gate,broker,store=gateway()
-    first=gate.submit(make_proposal(),RiskContext(),"test-order-1")
-    second=gate.submit(make_proposal(),RiskContext(),"test-order-1")
+    first=gate.submit(make_proposal(),test_context(),"test-order-1")
+    second=gate.submit(make_proposal(),test_context(),"test-order-1")
     assert first==second
     assert len(broker.list_fills())==1
     assert len([e for e in store.list_events() if e["event_type"]=="ORDER_FILLED"])==1
@@ -27,7 +31,7 @@ def test_paper_gateway_records_simulated_fill_and_prevents_duplicate():
 def test_risk_rejection_never_reaches_broker():
     gate,broker,_=gateway()
     with pytest.raises(PermissionError,match="PAPER_ONLY_GATE"):
-        gate.submit(make_proposal(mode="LIVE"),RiskContext(),"bad-mode")
+        gate.submit(make_proposal(mode="LIVE"),test_context(),"bad-mode")
     assert broker.list_fills()==[]
 
 def test_live_context_is_blocked_before_broker():
@@ -36,10 +40,9 @@ def test_live_context_is_blocked_before_broker():
         gate.submit(make_proposal(),RiskContext(paper_mode=False),"live-context")
     assert broker.list_fills()==[]
 
-
 def test_same_idempotency_key_with_different_order_is_rejected():
     gate,broker,_=gateway()
-    gate.submit(make_proposal(),RiskContext(),"same-key")
+    gate.submit(make_proposal(),test_context(),"same-key")
     with pytest.raises(ValueError,match="IDEMPOTENCY_KEY_REUSED"):
-        gate.submit(make_proposal(quantity=1),RiskContext(),"same-key")
+        gate.submit(make_proposal(quantity=1),test_context(),"same-key")
     assert len(broker.list_fills())==1
