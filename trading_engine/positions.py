@@ -18,6 +18,9 @@ class Position:
     status: str = "OPEN"
     last_price: float | None = None
     realized_pnl: float = 0.0
+    exit_reason: str | None = None
+    exit_price: float | None = None
+    closed_at: str | None = None
 
 class PositionLedger:
     def __init__(self, store: SQLiteStore):
