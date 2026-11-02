@@ -24,7 +24,7 @@ def test_worker_records_observation_events_and_heartbeat_without_execution():
     assert len(cycle["payload"]["signals"]) == 4
     assert any(event["event_type"] == "HEARTBEAT" for event in events)
     agent_events = [event for event in events if event["event_type"] == "AGENT_ACTIVITY"]
-    assert {event["payload"]["agent"] for event in agent_events} == {"chief_orchestrator", "research", "small_trading", "risk_manager"}
+    assert {event["payload"]["agent"] for event in agent_events} == {"chief_orchestrator", "research", "small_trading", "risk_manager", "performance_reporting"}
     assert any(event["payload"]["phase"] == "STRATEGIES_EVALUATED" for event in agent_events)
     assert all(event["payload"]["execution_enabled"] is False for event in agent_events)
     assert HealthSnapshot(store).build()["component"] == "small-trading-observation-worker"
