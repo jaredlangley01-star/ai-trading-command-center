@@ -54,3 +54,18 @@ def test_cycle_blocks_stale_market_data():
     assert report.status == "BLOCKED"
     assert report.message == "STALE_OR_INVALID_MARKET_DATA"
     assert report.signals == ()
+
+def test_cycle_accepts_recent_alpaca_minute_bar_within_three_scan_intervals():
+    from datetime import datetime, timedelta, timezone
+    from trading_engine.models import MarketSnapshot
+
+    class SlightlyDelayedProvider:
+        def fetch_observation(self, symbol, limit):
+            snapshot = MarketSnapshot(
+                "AAPL", 100, datetime.now(timezone.utc) - timedelta(seconds=150), "ALPACA_IEX"
+            )
+            return snapshot, [100 + i * 0.1 for i in range(25)]
+
+    report = ObservationCycle(SlightlyDelayedProvider()).run_symbol("AAPL")
+    assert report.status == "READY"
+    assert report.market_source == "ALPACA_IEX"
