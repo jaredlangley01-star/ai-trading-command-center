@@ -89,3 +89,28 @@ def test_remote_bind_requires_correct_bearer_token():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+class EventStore:
+    def list_events(self, limit):
+        return [{"id": 7, "event_type": "OBSERVATION_CYCLE", "created_at": "2026-11-02T10:00:00+00:00", "payload": {"symbol": "AAPL", "status": "READY"}}]
+
+
+def test_events_endpoint_is_read_only_and_limits_results():
+    server = create_dashboard_server(Portfolio(), Health(), port=0, event_store=EventStore())
+    thread = _serve(server)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/api/events?limit=10") as response:
+            payload = json.loads(response.read())
+        assert payload["events"][0]["event_type"] == "OBSERVATION_CYCLE"
+        for limit in ("101", "0", "invalid"):
+            try:
+                urlopen(base + "/api/events?limit=" + limit)
+                assert False, "invalid event limit must be rejected"
+            except HTTPError as error:
+                assert error.code == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
