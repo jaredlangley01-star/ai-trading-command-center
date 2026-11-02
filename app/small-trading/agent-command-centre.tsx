@@ -24,6 +24,7 @@ export default function AgentCommandCentre() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const [agentFilter, setAgentFilter] = useState("all");
   useEffect(() => {
     let active = true;
     async function refresh() {
@@ -42,6 +43,7 @@ export default function AgentCommandCentre() {
   }, []);
   const activity = useMemo(() => events.filter(e => e.event_type === "AGENT_ACTIVITY").map(eventSummary), [events]);
   const latest = (id: string) => activity.find(item => item.agent === id);
+  const timeline = events.filter(e => e.event_type === "AGENT_ACTIVITY" && (agentFilter === "all" || String(e.payload?.agent ?? "") === agentFilter)).slice(0, 30);
   return <section className="st-card st-panel" id="agents">
     <div className="st-panel-head"><div><h2>Agent Command Centre</h2><p>Recorded agent steps, outcomes and roles not active yet.</p></div><span className="st-tag">AUTO REFRESH · 5 SEC</span></div>
     {error ? <div className="st-empty"><b>Agent activity is not connected</b><p>{error}</p><small>Connect the dashboard to the running worker to see real events.</small></div> :
@@ -60,6 +62,26 @@ export default function AgentCommandCentre() {
           </div><i className={"st-agent-dot " + (statusClass || "is-idle")} />
         </article>;
       })}</div>}
+    {!error && <div className="st-agent-timeline">
+      <div className="st-agent-timeline-head"><div><h3>Agent activity timeline</h3><p>Latest recorded steps, newest first</p></div>
+        <select aria-label="Filter agent activity" value={agentFilter} onChange={e => setAgentFilter(e.target.value)}>
+          <option value="all">All agents</option>
+          {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+        </select>
+      </div>
+      {timeline.length === 0 ? <div className="st-agent-timeline-empty">No agent events have been recorded yet. Once the worker runs, each step will appear here.</div> :
+        <ol className="st-agent-timeline-list">{timeline.map(event => {
+          const item = eventSummary(event);
+          const role = agents.find(agent => agent.id === item.agent);
+          return <li key={event.id}><span className={"st-agent-timeline-marker " + (item.status === "ERROR" || item.status === "BLOCKED" ? "is-warning" : item.status === "WORKING" ? "is-working" : "is-ok")} />
+            <div className="st-agent-timeline-content">
+              <div className="st-agent-timeline-title"><b>{role?.name ?? item.agent}</b><span>{item.phase.replaceAll("_", " ")}</span></div>
+              <p>{item.summary}{item.symbol ? " · " + item.symbol : ""}</p>
+              <small>{new Date(item.createdAt).toLocaleString()} · {item.status.replaceAll("_", " ")}</small>
+              {Array.isArray(item.details.signals) && <div className="st-agent-signals">{(item.details.signals as Array<Record<string, unknown>>).map((signal, i) => <span key={i}>{String(signal.strategy)}: {String(signal.status)} · score {String(signal.score ?? "—")}</span>)}</div>}
+            </div></li>;
+        })}</ol>}
+    </div>}
     <div className="st-agent-disclaimer">Transparency note: only steps written to the audit log appear here. The first three roles currently run during observation scans. Risk approval, position monitoring and performance reporting are not yet connected to the recurring worker. These are deterministic software roles, not independent LLM agents. No orders are submitted.</div>
     <div className="st-live-footnote">Latest activity checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. An empty state does not mean an agent is working.</div>
   </section>;
