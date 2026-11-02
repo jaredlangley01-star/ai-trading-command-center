@@ -36,7 +36,7 @@ class ObservationWorker:
             "summary": summary, "details": details or {}, "execution_enabled": False,
         })
 
-    def _broker_risk_context(self):
+    def _broker_risk_context(self, symbol=None):
         if self.broker_context_provider is None:
             return RiskContext(portfolio_context_verified=False), {
                 "status": "BLOCKED", "reason": "BROKER_CONTEXT_NOT_CONFIGURED"
@@ -57,7 +57,41 @@ class ObservationWorker:
                     "status": "BLOCKED", "reason": "BROKER_DAILY_PNL_UNAVAILABLE"
                 }
             if validation.get("status") != "BROKER_DATA_VERIFIED":
+                self._agent_event(
+                    "position_monitor", "BROKER_SNAPSHOT_CHECK", "BLOCKED", symbol or "ACCOUNT",
+                    "Broker positions and open orders could not be validated; monitoring is read-only and blocked",
+                    {"reason": validation.get("reason", "BROKER_DATA_INVALID"), "execution_enabled": False},
+                )
                 return RiskContext(portfolio_context_verified=False), validation
+            matching_positions = [
+                position for position in positions
+                if str(position.get("symbol", "")).upper() == str(symbol or "").upper()
+            ] if symbol else positions
+            matching_orders = [
+                order for order in orders
+                if str(order.get("symbol", "")).upper() == str(symbol or "").upper()
+            ] if symbol else orders
+            self._agent_event(
+                "position_monitor", "BROKER_SNAPSHOT_CHECK", "COMPLETED", symbol or "ACCOUNT",
+                "Read broker-reported positions and open orders; no broker actions were taken",
+                {
+                    "positions": [{
+                        "symbol": item.get("symbol"), "side": item.get("side"),
+                        "quantity": item.get("qty"), "average_entry": item.get("avg_entry_price"),
+                        "current_price": item.get("current_price"), "market_value": item.get("market_value"),
+                        "unrealized_pl": item.get("unrealized_pl"),
+                    } for item in matching_positions],
+                    "open_orders": [{
+                        "symbol": item.get("symbol"), "side": item.get("side"),
+                        "quantity": item.get("qty"), "filled_quantity": item.get("filled_qty"),
+                        "status": item.get("status"), "submitted_at": item.get("submitted_at"),
+                    } for item in matching_orders],
+                    "position_count": len(matching_positions),
+                    "open_order_count": len(matching_orders),
+                    "read_only": True,
+                    "execution_enabled": False,
+                },
+            )
             exposure = sum(abs(float(position["market_value"])) for position in positions)
             context = RiskContext(
                 daily_realized_pnl=equity - last_equity,
@@ -154,7 +188,7 @@ class ObservationWorker:
                         self._agent_event("position_monitor", "POSITION_MARKED", "COMPLETED", symbol,
                                           "Simulated position remains open after price check",
                                           {"position_id": position.position_id, "mark_price": report.observed_price})
-                risk_context, broker_summary = self._broker_risk_context()
+                risk_context, broker_summary = self._broker_risk_context(symbol)
                 self._agent_event("risk_manager", "BROKER_CONTEXT_CHECK", broker_summary.get("status", "BLOCKED"),
                                   symbol, "Checked read-only broker portfolio context", broker_summary)
                 signal_rows = []
