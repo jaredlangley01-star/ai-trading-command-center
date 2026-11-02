@@ -1,9 +1,8 @@
 import json
+from threading import Thread
 from urllib.request import urlopen
 from urllib.error import HTTPError
-
 from trading_engine.api_runtime import build_dashboard_server_from_environment
-
 
 def test_api_runtime_starts_read_only_without_broker_credentials(tmp_path, monkeypatch):
     monkeypatch.setenv("SMALL_TRADING_DATABASE_PATH", str(tmp_path / "api.db"))
@@ -13,6 +12,8 @@ def test_api_runtime_starts_read_only_without_broker_credentials(tmp_path, monke
     monkeypatch.delenv("APCA_API_SECRET_KEY", raising=False)
     monkeypatch.delenv("SMALL_TRADING_API_TOKEN", raising=False)
     server, store = build_dashboard_server_from_environment()
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
     try:
         assert server.server_address[0] == "127.0.0.1"
         try:
@@ -22,5 +23,7 @@ def test_api_runtime_starts_read_only_without_broker_credentials(tmp_path, monke
             assert error.code == 503
             assert json.loads(error.read())["mode"] == "NOT_CONNECTED"
     finally:
+        server.shutdown()
         server.server_close()
+        thread.join(timeout=2)
         store.close()
