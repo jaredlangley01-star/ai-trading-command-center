@@ -140,3 +140,49 @@ def test_environment_builder_rejects_unknown_data_mode(monkeypatch, tmp_path):
     import pytest
     with pytest.raises(ValueError, match="SMALL_TRADING_DATA_MODE_MUST_BE"):
         build_worker_from_environment()
+
+
+def test_worker_monitors_validated_broker_positions_and_open_orders_without_actions():
+    store = SQLiteStore(":memory:")
+    snapshot = {
+        "mode": "ALPACA_PAPER",
+        "account": {
+            "status": "ACTIVE", "currency": "USD", "cash": "100000",
+            "equity": "100000", "last_equity": "100000",
+            "buying_power": "200000", "portfolio_value": "100000",
+            "trading_blocked": False, "account_blocked": False,
+        },
+        "positions": [{
+            "symbol": "AAPL", "side": "long", "qty": "2",
+            "avg_entry_price": "100", "current_price": "105",
+            "market_value": "210", "unrealized_pl": "10",
+        }],
+        "open_orders": [{
+            "id": "paper-order-1", "symbol": "AAPL", "side": "buy",
+            "qty": "1", "filled_qty": "0", "status": "new",
+            "submitted_at": "2026-11-02T15:00:00Z",
+        }],
+        "read_only": True,
+    }
+    provider = InMemoryMarketDataProvider({"AAPL": [100 + i for i in range(25)]})
+    worker = ObservationWorker(
+        ObservationCycle(provider), store, ["AAPL"],
+        broker_context_provider=lambda: snapshot,
+    )
+    worker.run_once()
+    events = store.list_events(200)
+    monitor = next(
+        event for event in events
+        if event["event_type"] == "AGENT_ACTIVITY"
+        and event["payload"]["agent"] == "position_monitor"
+        and event["payload"]["phase"] == "BROKER_SNAPSHOT_CHECK"
+    )
+    details = monitor["payload"]["details"]
+    assert monitor["payload"]["status"] == "COMPLETED"
+    assert details["position_count"] == 1
+    assert details["open_order_count"] == 1
+    assert details["positions"][0]["current_price"] == "105"
+    assert details["open_orders"][0]["status"] == "new"
+    assert details["read_only"] is True
+    assert details["execution_enabled"] is False
+    assert not any(event["event_type"] in {"ORDER_FILLED", "ORDER_SUBMITTED"} for event in events)
