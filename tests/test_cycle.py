@@ -6,6 +6,9 @@ def test_observation_cycle_returns_four_strategy_signals():
     report=ObservationCycle(InMemoryMarketDataProvider({"AAPL":prices})).run_symbol("AAPL")
     assert report.status=="READY"
     assert len(report.signals)==4
+    assert report.observed_price == prices[-1]
+    assert report.market_source == "IN_MEMORY_FIXTURE"
+    assert report.market_timestamp is not None
 
 def test_observation_cycle_blocks_missing_symbol():
     report=ObservationCycle(InMemoryMarketDataProvider({})).run_symbol("MSFT")
