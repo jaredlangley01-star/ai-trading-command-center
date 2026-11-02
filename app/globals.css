@@ -5044,3 +5044,14 @@ body {
   .st-broker-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .st-table { min-width: 620px; }
 }
+
+
+/* Read-only worker activity feed */
+.st-event-list { display: flex; flex-direction: column; }
+.st-event { display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--st-border, rgba(255,255,255,.08)); }
+.st-event:last-child { border-bottom: 0; }
+.st-event-type { flex: 0 0 150px; color: var(--st-muted, #9298a5); font-size: 10px; font-weight: 700; letter-spacing: .07em; }
+.st-event-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 5px; }
+.st-event-copy b { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.st-event-copy small { color: var(--st-muted, #9298a5); font-size: 10px; }
+@media (max-width: 600px) { .st-event { flex-direction: column; gap: 6px; } }
