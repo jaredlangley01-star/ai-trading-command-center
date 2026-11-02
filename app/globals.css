@@ -5387,3 +5387,61 @@ body {
 @media(max-width:1100px){.orbit-main{padding:14px}.orbit-agent{width:150px;min-height:145px}.orbit-agent .orbit-bot{transform:scale(.95);height:60px}.orbit-agent-info>b{font-size:10px}.orbit-agent-info>small{font-size:8px;max-width:135px}.orbit-core{width:210px;height:220px}.core-bot{height:108px}.core-bot .orbit-bot{transform:scale(1.8)}}
 @media(max-width:760px){.orbit-main{padding:10px}.orbit-scene{height:690px;min-height:690px}.orbit-agent{width:122px;min-height:132px}.orbit-agent .orbit-bot{transform:scale(.85);height:52px}.orbit-core{width:175px;height:190px}.core-bot{height:90px}.core-bot .orbit-bot{transform:scale(1.45)}}
 @media(max-width:480px){.orbit-command{border-radius:10px}.orbit-main{padding:9px}.orbit-heading{align-items:flex-start;gap:8px}.orbit-heading>span{font-size:7px}.orbit-scene{height:650px;min-height:650px}.orbit-agent{width:105px;min-height:120px}.orbit-core{width:148px;height:165px}}
+
+
+/* UI cleanup: the solar-system workspace reuses the global app navigation.
+   Hide its legacy, non-interactive secondary sidebar so there is one source of navigation. */
+.orbit-layout {
+  display: block;
+  min-height: 0;
+}
+.orbit-sidebar {
+  display: none !important;
+}
+.orbit-main {
+  width: 100%;
+  min-width: 0;
+  padding: 20px;
+}
+.orbit-command {
+  border-color: #2b405a;
+  border-radius: 18px;
+  box-shadow: 0 18px 55px #0006;
+}
+.orbit-heading {
+  padding: 4px 4px 18px;
+}
+.orbit-heading h1 {
+  font-size: clamp(20px, 2vw, 27px);
+  letter-spacing: -0.035em;
+}
+.orbit-heading p {
+  line-height: 1.6;
+}
+.orbit-scene {
+  border: 1px solid #304762;
+  box-shadow: inset 0 0 90px #0008, 0 18px 42px #0005;
+}
+.orbit-agent {
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  border: 1px solid #344d6a;
+  box-shadow: 0 12px 28px #0007;
+}
+.orbit-agent:hover {
+  transform: translateY(-3px);
+  border-color: #6a91c1;
+  box-shadow: 0 16px 34px #0009, 0 0 22px #5c9be522;
+}
+.orbit-core {
+  border-color: #56769e;
+  box-shadow: 0 0 0 8px #7aa9e20a, 0 0 50px #4b83c844, inset 0 0 35px #4b83c822;
+}
+.orbit-bottom-stats > div,
+.orbit-activity-panel,
+.orbit-agent-detail {
+  border-color: #2a3e56;
+}
+@media (max-width: 760px) {
+  .orbit-main { padding: 12px; }
+  .orbit-heading { padding: 2px 2px 14px; }
+}
