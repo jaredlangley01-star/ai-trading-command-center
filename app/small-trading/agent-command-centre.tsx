@@ -1,89 +1,27 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-
-type EventItem = { id: number; event_type: string; created_at: string; payload: Record<string, unknown> };
-type Agent = { id: string; name: string; purpose: string; implementation: string };
-const agents: Agent[] = [
-  { id: "chief_orchestrator", name: "Chief Trading Agent", purpose: "Coordinates each market scan and records its outcome.", implementation: "Active orchestration" },
-  { id: "research", name: "Research Agent", purpose: "Checks market data availability and freshness.", implementation: "Active data validation" },
-  { id: "small_trading", name: "Small Trading Agent", purpose: "Evaluates Trend, Momentum, Breakout and Mean Reversion.", implementation: "Active baseline strategies" },
-  { id: "risk_manager", name: "Risk Manager", purpose: "Applies deterministic limits before a trade can be considered.", implementation: "Active preliminary reviews; blocks approval until portfolio context is verified" },
-  { id: "position_monitor", name: "Position Monitor", purpose: "Checks simulated positions against stop-loss and take-profit conditions on fresh observations.", implementation: "Active simulated position checks on each fresh symbol observation" },
-  { id: "performance_reporting", name: "Performance Agent", purpose: "Summarises account performance and trading outcomes.", implementation: "Active simulated ledger reporting; not broker-reconciled" },
-];
-function eventSummary(event: EventItem) {
-  const p = event.payload ?? {};
-  return {
-    agent: String(p.agent ?? ""), status: String(p.status ?? "UNKNOWN"),
-    phase: String(p.phase ?? "ACTIVITY"), symbol: String(p.symbol ?? ""),
-    summary: String(p.summary ?? "Agent activity recorded"), createdAt: event.created_at,
-    details: p.details && typeof p.details === "object" ? p.details as Record<string, unknown> : {},
-  };
-}
-export default function AgentCommandCentre() {
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [checkedAt, setCheckedAt] = useState<string | null>(null);
-  const [agentFilter, setAgentFilter] = useState("all");
-  useEffect(() => {
-    let active = true;
-    async function refresh() {
-      try {
-        const response = await fetch("/api/small-trading/events?limit=100", { cache: "no-store" });
-        const payload = await response.json() as { events?: EventItem[]; error?: string };
-        if (!response.ok) throw new Error(payload.error ?? "AGENT_ACTIVITY_UNAVAILABLE");
-        if (active) { setEvents(payload.events ?? []); setError(null); setCheckedAt(new Date().toISOString()); }
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : "AGENT_ACTIVITY_UNAVAILABLE");
-      }
-    }
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, []);
-  const activity = useMemo(() => events.filter(e => e.event_type === "AGENT_ACTIVITY").map(eventSummary), [events]);
-  const latest = (id: string) => activity.find(item => item.agent === id);
-  const timeline = events.filter(e => e.event_type === "AGENT_ACTIVITY" && (agentFilter === "all" || String(e.payload?.agent ?? "") === agentFilter)).slice(0, 30);
-  return <section className="st-card st-panel" id="agents">
-    <div className="st-panel-head"><div><h2>Agent Command Centre</h2><p>Recorded work from all six specialist roles, including blocked decisions and outcomes.</p></div><span className="st-tag">AUTO REFRESH · 5 SEC</span></div>
-    {error ? <div className="st-empty"><b>Agent activity is not connected</b><p>{error}</p><small>Connect the dashboard to the running worker to see real events.</small></div> :
-      <div className="st-agent-grid">{agents.map((agent, index) => {
-        const last = latest(agent.id);
-        const activeRole = true;
-        const ageSeconds = last ? Math.max(0, (Date.now() - new Date(last.createdAt).getTime()) / 1000) : null;
-        const status = last ? (ageSeconds !== null && ageSeconds > 180 ? "STALE" : last.status) : activeRole ? "WAITING FOR FIRST CYCLE" : "STANDBY";
-        const statusClass = status === "ERROR" || status === "BLOCKED" || status === "STALE" ? "is-warning" : status === "WORKING" ? "is-working" : status === "COMPLETED" || status === "READY" ? "is-ok" : "";
-        return <article className="st-agent st-agent-live" key={agent.id}>
-          <span className="st-agent-number">0{index + 1}</span>
-          <div className="st-agent-live-copy"><b>{agent.name}</b><p>{agent.purpose}</p>
-            <span className={"st-agent-state " + statusClass}>{status.replaceAll("_", " ")}</span>
-            <small>{last ? last.summary + (last.symbol ? " · " + last.symbol : "") : agent.implementation}</small>
-            {last && <small className="st-agent-time">Last event: {new Date(last.createdAt).toLocaleString()} · {ageSeconds !== null && ageSeconds > 180 ? "No recent activity" : "Recent activity"}</small>}
-            {last && Array.isArray(last.details.signals) && <div className="st-agent-signals">{(last.details.signals as Array<Record<string, unknown>>).map((signal, i) => <span key={i}>{String(signal.strategy)}: {String(signal.status)} · {String(signal.reason ?? "")}</span>)}</div>}
-          </div><i className={"st-agent-dot " + (statusClass || "is-idle")} />
-        </article>;
-      })}</div>}
-    {!error && <div className="st-agent-timeline">
-      <div className="st-agent-timeline-head"><div><h3>Agent activity timeline</h3><p>Latest recorded steps, newest first</p></div>
-        <select aria-label="Filter agent activity" value={agentFilter} onChange={e => setAgentFilter(e.target.value)}>
-          <option value="all">All agents</option>
-          {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-        </select>
-      </div>
-      {timeline.length === 0 ? <div className="st-agent-timeline-empty">No agent events have been recorded yet. Once the worker runs, each step will appear here.</div> :
-        <ol className="st-agent-timeline-list">{timeline.map(event => {
-          const item = eventSummary(event);
-          const role = agents.find(agent => agent.id === item.agent);
-          return <li key={event.id}><span className={"st-agent-timeline-marker " + (item.status === "ERROR" || item.status === "BLOCKED" ? "is-warning" : item.status === "WORKING" ? "is-working" : "is-ok")} />
-            <div className="st-agent-timeline-content">
-              <div className="st-agent-timeline-title"><b>{role?.name ?? item.agent}</b><span>{item.phase.replaceAll("_", " ")}</span></div>
-              <p>{item.summary}{item.symbol ? " · " + item.symbol : ""}</p>
-              <small>{new Date(item.createdAt).toLocaleString()} · {item.status.replaceAll("_", " ")}</small>
-              {Array.isArray(item.details.signals) && <div className="st-agent-signals">{(item.details.signals as Array<Record<string, unknown>>).map((signal, i) => <span key={i}>{String(signal.strategy)}: {String(signal.status)} · score {String(signal.score ?? "—")}</span>)}</div>}
-            </div></li>;
-        })}</ol>}
-    </div>}
-    <div className="st-agent-disclaimer">Transparency note: only steps written to the audit log appear here. All six roles are now called by the recurring observation worker. Position checks only run when an open simulated position exists for the scanned symbol; risk reviews may be blocked until portfolio context is verified. These are deterministic software roles, not independent LLM agents. No orders are submitted.</div>
-    <div className="st-live-footnote">Latest activity checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. An empty state does not mean an agent is working.</div>
-  </section>;
+type EventItem={id:number;event_type:string;created_at:string;payload:Record<string,unknown>};
+type Agent={id:string;name:string;role:string;purpose:string;implementation:string;icon:string};
+const agents:Agent[]=[
+{id:"chief_orchestrator",name:"Chief Trading Agent",role:"MAIN ORCHESTRATOR",purpose:"Coordinates each market scan, delegates work to specialist roles, monitors system outcomes and records the overall cycle.",implementation:"Active orchestration",icon:"⌁"},
+{id:"research",name:"Research Agent",role:"MARKET INTELLIGENCE",purpose:"Checks market data availability, source and freshness before strategy evaluation. Stale or missing data must not be treated as a valid opportunity.",implementation:"Active data validation",icon:"▥"},
+{id:"small_trading",name:"Small Trading Agent",role:"STRATEGY ANALYSIS",purpose:"Evaluates Trend Following, Momentum, Breakout and Mean Reversion signals against the latest observations.",implementation:"Active baseline strategies",icon:"⌁"},
+{id:"risk_manager",name:"Risk Manager",role:"CAPITAL PROTECTION",purpose:"Applies deterministic risk gates, checks portfolio context and blocks candidates when required limits or authorisations are missing.",implementation:"Preliminary reviews; risk approval remains gated until limits are explicitly authorised",icon:"⬡"},
+{id:"position_monitor",name:"Position Monitor",role:"POSITION OVERSIGHT",purpose:"Monitors supported open positions against stop-loss and take-profit conditions using fresh observations.",implementation:"Simulated position checks; broker positions are read-only",icon:"◎"},
+{id:"performance_reporting",name:"Performance Agent",role:"REPORTING & INSIGHTS",purpose:"Summarises simulator ledger outcomes and broker order activity without claiming unsupported realised P&L.",implementation:"Simulator reporting and read-only broker activity summary",icon:"▤"}];
+function eventSummary(event:EventItem){const p=event.payload??{};return{agent:String(p.agent??""),status:String(p.status??"UNKNOWN"),phase:String(p.phase??"ACTIVITY"),symbol:String(p.symbol??""),summary:String(p.summary??"Agent activity recorded"),createdAt:event.created_at,details:p.details&&typeof p.details==="object"?p.details as Record<string,unknown>:{}}}
+export default function AgentCommandCentre(){
+ const[events,setEvents]=useState<EventItem[]>([]),[error,setError]=useState<string|null>(null),[checkedAt,setCheckedAt]=useState<string|null>(null),[agentFilter,setAgentFilter]=useState("all"),[selected,setSelected]=useState<string|null>(null);
+ useEffect(()=>{let active=true;async function refresh(){try{const response=await fetch("/api/small-trading/events?limit=100",{cache:"no-store"});const payload=await response.json() as {events?:EventItem[];error?:string};if(!response.ok)throw new Error(payload.error??"AGENT_ACTIVITY_UNAVAILABLE");if(active){setEvents(payload.events??[]);setError(null);setCheckedAt(new Date().toISOString())}}catch(e){if(active)setError(e instanceof Error?e.message:"AGENT_ACTIVITY_UNAVAILABLE")}}void refresh();const timer=window.setInterval(()=>void refresh(),5000);return()=>{active=false;window.clearInterval(timer)}},[]);
+ const activity=useMemo(()=>events.filter(e=>e.event_type==="AGENT_ACTIVITY").map(eventSummary),[events]),selectedAgent=agents.find(a=>a.id===selected)??null,selectedEvents=activity.filter(item=>item.agent===selected).slice(0,12);
+ const latest=(id:string)=>activity.find(item=>item.agent===id);
+ function stateFor(id:string){const last=latest(id);if(!last)return"WAITING";return Date.now()-new Date(last.createdAt).getTime()>180000?"STALE":last.status}
+ const timeline=events.filter(e=>e.event_type==="AGENT_ACTIVITY"&&(agentFilter==="all"||String(e.payload?.agent??"")===agentFilter)).slice(0,30);
+ return <section className="st-agent-command">
+ {error?<div className="st-empty"><b>Agent activity is not connected</b><p>{error}</p><small>Connect the dashboard to the running worker to see recorded events.</small></div>:<div className="st-workstation-grid">{agents.map((agent,index)=>{const last=latest(agent.id),status=stateFor(agent.id),statusClass=status==="ERROR"||status==="BLOCKED"||status==="STALE"?"is-warning":status==="WORKING"?"is-working":status==="COMPLETED"||status==="READY"?"is-ok":"is-idle";return <button type="button" className={"st-workstation "+(index===0?"st-workstation-chief ":"")+statusClass} key={agent.id} onClick={()=>setSelected(agent.id)} aria-label={"Open "+agent.name+" details"}><span className="st-workstation-top"><span className="st-workstation-icon">{agent.icon}</span><span className="st-workstation-number">0{index+1}</span></span><span className="st-workstation-role">{agent.role}</span><strong>{agent.name}</strong><span className="st-workstation-purpose">{agent.purpose}</span><span className="st-workstation-bottom"><i className={"st-agent-dot "+statusClass}/><span>{status.replaceAll("_"," ")}</span><span className="st-workstation-open">OPEN DETAILS ↗</span></span><span className="st-workstation-latest">{last?last.summary+(last.symbol?" · "+last.symbol:""):agent.implementation}</span></button>})}</div>}
+ <div className="st-agent-live-meta"><span><i/> Audit-log driven status</span><span>Last refreshed: {checkedAt?new Date(checkedAt).toLocaleTimeString():"—"}</span></div>
+ <div className="st-agent-timeline"><div className="st-agent-timeline-head"><div><h3>Agent activity timeline</h3><p>Recorded work from the latest observation cycles</p></div><select aria-label="Filter agent activity" value={agentFilter} onChange={e=>setAgentFilter(e.target.value)}><option value="all">All agents</option>{agents.map(agent=><option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></div>
+ {timeline.length===0?<div className="st-agent-timeline-empty">No agent events have been recorded yet. Once the worker runs, each recorded step will appear here.</div>:<ol className="st-agent-timeline-list">{timeline.map(event=>{const item=eventSummary(event),role=agents.find(a=>a.id===item.agent);return <li key={event.id}><span className={"st-agent-timeline-marker "+(item.status==="ERROR"||item.status==="BLOCKED"?"is-warning":item.status==="WORKING"?"is-working":"")}/><div className="st-agent-timeline-content"><div className="st-agent-timeline-title"><b>{role?.name??item.agent}</b><span>{item.phase.replaceAll("_"," ")}</span></div><p>{item.summary}{item.symbol?" · "+item.symbol:""}</p><small>{new Date(item.createdAt).toLocaleString()} · {item.status.replaceAll("_"," ")}</small></div></li>})}</ol>}</div>
+ {selectedAgent&&<div className="st-agent-modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setSelected(null)}}><section className="st-agent-modal" role="dialog" aria-modal="true" aria-labelledby="st-agent-modal-title"><header><div><span className="st-workstation-role">{selectedAgent.role}</span><h2 id="st-agent-modal-title">{selectedAgent.name}</h2><p>{selectedAgent.purpose}</p></div><button type="button" onClick={()=>setSelected(null)} aria-label="Close agent details">×</button></header><div className="st-agent-modal-status"><span>Current status</span><b>{stateFor(selectedAgent.id).replaceAll("_"," ")}</b></div><div className="st-agent-modal-block"><h3>Responsibilities</h3><p>{selectedAgent.implementation}</p></div><div className="st-agent-modal-block"><h3>Latest recorded activity</h3>{selectedEvents.length?<div className="st-agent-modal-events">{selectedEvents.map((item,i)=><article key={i}><div><b>{item.phase.replaceAll("_"," ")}</b><span>{item.status.replaceAll("_"," ")}</span></div><p>{item.summary}{item.symbol?" · "+item.symbol:""}</p><small>{new Date(item.createdAt).toLocaleString()}</small></article>)}</div>:<p className="st-muted">No activity has been recorded for this agent yet. Its role and current implementation are shown above; no work is assumed.</p>}</div><div className="st-agent-modal-note">Transparency: these are deterministic software roles and audit-log views, not independent LLM agents. The Chief Trading Agent coordinates the workflow. No orders are submitted.</div><footer><button type="button" onClick={()=>{setAgentFilter(selectedAgent.id);setSelected(null)}}>View in activity timeline</button><button type="button" className="secondary" onClick={()=>setSelected(null)}>Close</button></footer></section></div>}
+ </section>
 }
