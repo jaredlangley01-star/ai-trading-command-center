@@ -79,3 +79,53 @@ The worker and API share one named durable Docker volume at /data. The API liste
 The example environment file contains placeholders only. The real .env.small-trading is ignored by Git. Generate the API token locally and do not reuse the Alpaca key. Compose validation in CI checks configuration syntax, not successful broker connectivity, persistent-volume behavior on a particular host, TLS, network reachability, uptime, or market-data quality.
 
 This is a deployment recipe, not a deployed service. No cloud host, DNS, domain, paid plan, or broker account is provisioned by the repository.
+
+
+## Run the dashboard and observation worker on one macOS device
+
+This is the preferred no-hosting-cost development setup when the computer can stay switched on. It runs the Python observation worker and read-only API in Docker, while the Next.js dashboard runs locally on the same device. The API port is published only on 127.0.0.1, not the device's network interface.
+
+Prerequisites: Docker Desktop, Git, Node.js 22.13+, and an Alpaca Paper account with market-data credentials. This setup does not send orders.
+
+1. Clone the development branch:
+
+       git clone --branch rebuild/small-trading-foundation https://github.com/jaredlangley01-star/ai-trading-command-center.git
+       cd ai-trading-command-center
+
+2. Create the private worker environment file:
+
+       cp .env.small-trading.example .env.small-trading
+       openssl rand -hex 32
+
+   Put the generated random value into `SMALL_TRADING_API_TOKEN` in `.env.small-trading`. Add your Alpaca Paper API key and secret there. Keep this file private; it is ignored by Git. Never paste credentials into chat or commit them.
+
+3. Start the worker and API:
+
+       docker compose -f docker-compose.small-trading.yml up -d --build
+
+   Check that both containers are running:
+
+       docker compose -f docker-compose.small-trading.yml ps
+       docker compose -f docker-compose.small-trading.yml logs -f observation-worker
+
+4. Create the local dashboard environment file `.env.local` in the project root with these two entries. Use the exact same token as the worker file:
+
+       SMALL_TRADING_BACKEND_URL=http://127.0.0.1:8765
+       SMALL_TRADING_API_TOKEN=PASTE_THE_SAME_RANDOM_TOKEN_HERE
+
+   `.env.local` is ignored by Git. It must not use a `NEXT_PUBLIC_` prefix.
+
+5. In a second Terminal window, install and start the dashboard:
+
+       npm ci
+       npm run dev
+
+6. Open http://localhost:3000/small-trading in the browser. The Agent Command Centre and activity timeline will show only the events actually written by the running worker.
+
+Keep Docker Desktop and the dashboard process running. The worker and API containers restart automatically if they exit, but the dashboard dev server must remain running while you use the web interface. Closing the laptop, losing internet, or stopping Docker pauses market observation. This is a development setup, not a hardened public production service.
+
+To stop the worker and API:
+
+       docker compose -f docker-compose.small-trading.yml down
+
+The SQLite data volume is retained when containers are stopped this way. Do not use `down --volumes` unless you intend to erase the local trading event database.
