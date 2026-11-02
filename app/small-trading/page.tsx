@@ -5,6 +5,7 @@ import ActivityFeed from "./activity-feed";
 import MarketDataPanel from "./market-data-panel";
 import AgentCommandCentre from "./agent-command-centre";
 import DecisionHistory from "./decision-history";
+import PerformancePanel from "./performance-panel";
 
 export default function SmallTradingDashboard() {
   return <main className="st-shell">
@@ -31,6 +32,7 @@ export default function SmallTradingDashboard() {
       <MarketDataPanel />
       <AgentCommandCentre />
       <DecisionHistory />
+      <PerformancePanel />
       <ActivityFeed />
       <footer className="st-footer"><span>SMALL TRADING PLATFORM</span><span>FOUNDATION · PAPER ONLY · LIVE DISABLED</span></footer>
     </section>
