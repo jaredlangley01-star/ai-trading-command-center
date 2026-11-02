@@ -6,7 +6,8 @@ from .health import Heartbeat
 from .scheduler import CycleScheduler
 from .storage import SQLiteStore
 from .models import Side, TradeProposal
-from .risk import RiskContext, RiskManager, RiskLimits
+from .risk import RiskContext, RiskManager
+from .positions import PositionLedger, PositionMonitoringAgent
 
 
 class ObservationWorker:
@@ -21,6 +22,8 @@ class ObservationWorker:
         self.heartbeat = Heartbeat(store, component="small-trading-observation-worker")
         self.scheduler = CycleScheduler(self._run_symbol, self.symbols, interval_seconds)
         self.risk_manager = RiskManager()
+        self.position_ledger = PositionLedger(store)
+        self.position_monitor = PositionMonitoringAgent(self.position_ledger)
 
     def _agent_event(self, agent, phase, status, symbol, summary, details=None):
         self.store.append_event("AGENT_ACTIVITY", {
@@ -78,6 +81,22 @@ class ObservationWorker:
             self._agent_event("research", "DATA_CHECK_COMPLETED", research_status, symbol,
                               report.message, {"market": market})
             if report.status == "READY":
+                for position in self.position_ledger.list_open():
+                    if position.symbol != symbol:
+                        continue
+                    self._agent_event("position_monitor", "POSITION_CHECK_STARTED", "WORKING", symbol,
+                                      "Checking simulated position against its stop and target",
+                                      {"position_id": position.position_id})
+                    updated = self.position_monitor.process_mark(position.position_id, report.observed_price)
+                    if updated and updated.status == "CLOSED":
+                        self._agent_event("position_monitor", "POSITION_EXIT_TRIGGERED", "COMPLETED", symbol,
+                                          "Simulated position closed by " + str(updated.exit_reason),
+                                          {"position_id": updated.position_id, "exit_price": updated.exit_price,
+                                           "realized_pnl": updated.realized_pnl, "reason": updated.exit_reason})
+                    else:
+                        self._agent_event("position_monitor", "POSITION_MARKED", "COMPLETED", symbol,
+                                          "Simulated position remains open after price check",
+                                          {"position_id": position.position_id, "mark_price": report.observed_price})
                 signal_rows = []
                 risk_reviews = []
                 for signal in report.signals:
