@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useZarRate } from "./use-zar";
 
 type Observation = {
   symbol: string;
@@ -21,6 +22,7 @@ function formatClock(value?: string) {
 }
 
 export default function MarketDataPanel() {
+  const fx=useZarRate("USD");
   const [data, setData] = useState<MarketResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clock, setClock] = useState<ClockResponse | null>(null);
@@ -73,8 +75,8 @@ export default function MarketDataPanel() {
     {error ? <div className="st-empty"><b>Market diagnostics not connected</b><p>{error}</p></div> : !data?.observations?.length ? <div className="st-empty"><b>No market observations recorded</b><p>Freshness appears after the worker successfully reads market bars.</p></div> :
       <div>{data.observations.map(item => <div className="st-health-row" key={item.symbol}>
         <span><b>{item.symbol}</b><small className="st-market-meta">{item.source === "IN_MEMORY_FIXTURE" ? "GENERATED DEMO DATA · NOT LIVE" : item.source} · {new Date(item.observed_at).toLocaleString()}</small></span>
-        <b className={item.freshness === "FRESH" ? "" : "st-muted"}>{item.price == null ? "—" : item.price.toFixed(2)} · {item.freshness} · {Math.round(item.age_seconds)}s</b>
+        <b className={item.freshness === "FRESH" ? "" : "st-muted"}>{item.price == null ? "—" : fx.format(item.price)} · {item.freshness} · {Math.round(item.age_seconds)}s</b>
       </div>)}</div>}
-    <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. Session status comes from Alpaca's broker clock, not a weekday estimate. Generated demo prices are synthetic and must never be treated as real market data. Alpaca IEX is not a consolidated all-exchange feed.</p>
+    <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. Market prices are converted from USD to ZAR using the latest available exchange rate. {fx.error ? "FX conversion unavailable." : ""} Session status comes from Alpaca's broker clock, not a weekday estimate. Generated demo prices are synthetic and must never be treated as real market data. Alpaca IEX is not a consolidated all-exchange feed.</p>
   </section>;
 }
