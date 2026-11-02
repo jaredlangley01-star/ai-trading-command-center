@@ -29,8 +29,8 @@ services:
     volumes:
       - small-trading-data:/data
     command: ["small-trading-api"]
-    expose:
-      - "8765"
+    ports:
+      - "127.0.0.1:8765:8765"
     stop_grace_period: 15s
 
 volumes:
