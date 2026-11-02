@@ -141,3 +141,14 @@ CI run 41444838371 passed the dashboard proxy/type-check and Python tests before
 ## Deployment readiness
 
 The worker can now be packaged consistently, but it still needs a persistent host with durable storage, server-side secrets, restart policy, and secure network path to the dashboard. No provider has been selected or provisioned, no container image has been published, and no charges have been incurred. Alpaca account credentials are not configured. No broker account is connected and there is no order execution in this worker.
+
+
+## Milestone 15: read-only worker activity feed
+
+Added an authenticated GET-only `/api/events` endpoint with a bounded limit (1–100), connected it to the API process's shared SQLite event store, and allowed the resource through the Next.js server-side proxy. The dashboard now renders recent observation cycles, strategy evaluation counts, worker errors and heartbeats, refreshing every 15 seconds. The activity feed has no trading controls. Tests cover event retrieval and invalid limits.
+
+CI run 41445582388 passed all three jobs (Python tests, dashboard type-check and container build) for the preceding worker/API milestone. The activity-feed changes are committed; their CI run is pending.
+
+## Current operational truth
+
+The worker and API are separate processes and must share the same durable database path for heartbeat and activity visibility. The broker panel reads Alpaca Paper account information only when credentials are configured. The portfolio endpoint still represents the local simulator and is explicitly NOT_RECONCILED; it must not be interpreted as the real broker account. No Alpaca credentials are configured, no host is provisioned, and nothing is deployed. The worker remains observation-only; there is no live execution path.
