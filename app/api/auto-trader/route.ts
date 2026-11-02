@@ -642,14 +642,23 @@ async function runCycle(
           sum + Number(row.quantity) * Number(row.current_price ?? row.entry_price),
         0,
       );
-  const autoExposure = riskRows
-    .filter((row) => (usesAlpacaPaper ? row.trade_origin : row.source) === "AUTO_TRADER")
-    .reduce(
-      (sum, row) =>
-        sum +
-        Number(row.quantity) * Number(row.current_price ?? row.entry_price),
-      0,
-    );
+  const autoExposure = usesAlpacaPaper
+    ? (paperPositionsResult.data ?? [])
+        .filter((row) => row.trade_origin === "AUTO_TRADER")
+        .reduce(
+          (sum, row) =>
+            sum +
+            Number(row.quantity) * Number(row.current_price ?? row.entry_price),
+          0,
+        )
+    : rows
+        .filter((row) => row.source === "AUTO_TRADER")
+        .reduce(
+          (sum, row) =>
+            sum +
+            Number(row.quantity) * Number(row.current_price ?? row.entry_price),
+          0,
+        );
   const risk = new ProductionRiskManager(
     riskSettings,
     async (context, decision) => {
