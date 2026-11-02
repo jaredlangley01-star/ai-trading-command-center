@@ -5505,3 +5505,77 @@ body {
  .st-agent-directory-grid{grid-template-columns:1fr}
  .st-command-main{min-width:0}
 }
+
+
+/* Dedicated Rest Mode layout: prevent inherited card transforms and keep content readable. */
+.st-agent-rest-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));
+  align-items:stretch;
+  gap:14px;
+  width:100%;
+  margin:12px 0 20px;
+}
+.st-agent-rest-card{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  justify-content:flex-start;
+  position:relative;
+  box-sizing:border-box;
+  width:100%;
+  min-width:0;
+  min-height:230px;
+  padding:16px;
+  overflow:hidden;
+  writing-mode:horizontal-tb;
+  text-orientation:mixed;
+  transform:none !important;
+  border:1px solid #67447b;
+  border-radius:14px;
+  background:linear-gradient(145deg,#241b32,#111a29);
+  color:#f0e8f7;
+  box-shadow:0 10px 26px #0003;
+}
+.st-agent-rest-card *{
+  writing-mode:horizontal-tb;
+  text-orientation:mixed;
+  transform:none;
+}
+.st-agent-rest-card .st-agent-directory-card-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:14px;
+}
+.st-agent-rest-card>small{
+  display:block;
+  color:#c39bdd;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.12em;
+}
+.st-agent-rest-card h3{
+  margin:7px 0;
+  font-size:15px;
+  line-height:1.3;
+}
+.st-agent-rest-card>p{
+  min-height:0;
+  margin:0;
+  color:#b7abc5;
+  font-size:11px;
+  line-height:1.55;
+}
+.st-agent-rest-card .st-agent-task{
+  margin-top:auto;
+  padding:11px;
+}
+.st-agent-rest-card .st-agent-task span{
+  overflow-wrap:anywhere;
+}
+@media(max-width:760px){
+  .st-agent-rest-grid{grid-template-columns:1fr;gap:10px}
+  .st-agent-rest-card{min-height:0}
+}
