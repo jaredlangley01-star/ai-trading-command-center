@@ -5099,3 +5099,23 @@ body {
 .st-agent-timeline-content p{margin:5px 0;color:var(--st-text,#e8ebf1);font-size:11px;line-height:1.5}
 .st-agent-timeline-content small{font-size:9px;color:var(--st-muted,#9298a5)}
 @media(max-width:600px){.st-agent-timeline-head{align-items:flex-start;flex-direction:column}.st-agent-timeline-head select{max-width:none;width:100%}}
+
+.st-decision-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.st-decision-summary>div{padding:12px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:8px;display:flex;flex-direction:column;gap:6px}
+.st-decision-summary small{color:var(--st-muted,#9298a5);font-size:10px}
+.st-decision-summary b{font-size:20px;font-variant-numeric:tabular-nums}
+.st-decision-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0;color:var(--st-muted,#9298a5);font-size:11px}
+.st-decision-toolbar select{background:#111a29;color:inherit;border:1px solid var(--st-border,rgba(255,255,255,.14));border-radius:7px;padding:8px;font-size:11px}
+.st-decision-list{display:flex;flex-direction:column}
+.st-decision-row{padding:13px 2px;border-top:1px solid var(--st-border,rgba(255,255,255,.08))}
+.st-decision-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.st-decision-title b{font-size:13px}
+.st-decision-title span{font-size:10px;color:var(--st-muted,#9298a5)}
+.st-decision-title strong{margin-left:auto;font:700 10px monospace;color:var(--st-muted,#9298a5)}
+.st-decision-title strong.is-buy{color:#65d6a0}
+.st-decision-title strong.is-sell{color:#ef8c8c}
+.st-decision-main>p{margin:7px 0 4px;font-size:11px}
+.st-decision-main>small{font-size:9px;color:var(--st-muted,#9298a5)}
+.st-decision-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.st-decision-meta span{font-size:9px;padding:4px 6px;border-radius:5px;border:1px solid var(--st-border,rgba(255,255,255,.1));color:var(--st-muted,#9298a5)}
+@media(max-width:600px){.st-decision-summary{gap:6px}.st-decision-summary>div{padding:9px}.st-decision-summary b{font-size:17px}}
