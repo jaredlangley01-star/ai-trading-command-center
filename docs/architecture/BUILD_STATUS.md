@@ -236,3 +236,8 @@ Added `scripts/start-small-trading-mac.sh` and `scripts/stop-small-trading-mac.s
 The recurring worker now runs a deterministic preliminary risk review for every directional strategy signal. It constructs illustrative candidate levels using a clearly disclosed 1% stop and 2R target assumption, then sends the candidate through the risk manager. Crucially, the worker sets `portfolio_context_verified=false`: until broker positions and daily P&L are reconciled, every directional candidate is rejected with `PORTFOLIO_CONTEXT_UNVERIFIED`. This prevents a preliminary scan from falsely appearing approved. No order submission path was added.
 
 The decision journal now displays the preliminary risk result, rejection reason, proposed quantity, estimated loss and illustrative stop/target. The Agent Command Centre marks Risk Manager as active. These levels are placeholders for development and are not optimized trading parameters or recommendations.
+
+
+## Milestone 28: recurring simulated position monitoring
+
+The observation worker now checks existing simulated ledger positions for the symbol whenever a fresh market observation is available. It writes a visible activity event for the check and records when a stop-loss or take-profit condition closes a simulated ledger position. It does not submit a broker exit order; the ledger close is a simulation record only. End-of-day closure is not yet connected to an exchange-session scheduler. Added a worker integration test for a simulated long position hitting its stop. Position Monitor is now marked active in the Agent Command Centre.
