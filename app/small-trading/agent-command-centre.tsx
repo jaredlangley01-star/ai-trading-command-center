@@ -50,14 +50,15 @@ export default function AgentCommandCentre() {
       <div className="st-agent-grid">{agents.map((agent, index) => {
         const last = latest(agent.id);
         const activeRole = agent.id === "chief_orchestrator" || agent.id === "research" || agent.id === "small_trading";
-        const status = last ? last.status : activeRole ? "NO ACTIVITY YET" : "STANDBY";
-        const statusClass = status === "ERROR" || status === "BLOCKED" ? "is-warning" : status === "WORKING" ? "is-working" : status === "COMPLETED" || status === "READY" ? "is-ok" : "";
+        const ageSeconds = last ? Math.max(0, (Date.now() - new Date(last.createdAt).getTime()) / 1000) : null;
+        const status = last ? (ageSeconds !== null && ageSeconds > 180 ? "STALE" : last.status) : activeRole ? "NO ACTIVITY YET" : "STANDBY";
+        const statusClass = status === "ERROR" || status === "BLOCKED" || status === "STALE" ? "is-warning" : status === "WORKING" ? "is-working" : status === "COMPLETED" || status === "READY" ? "is-ok" : "";
         return <article className="st-agent st-agent-live" key={agent.id}>
           <span className="st-agent-number">0{index + 1}</span>
           <div className="st-agent-live-copy"><b>{agent.name}</b><p>{agent.purpose}</p>
             <span className={"st-agent-state " + statusClass}>{status.replaceAll("_", " ")}</span>
             <small>{last ? last.summary + (last.symbol ? " · " + last.symbol : "") : agent.implementation}</small>
-            {last && <small className="st-agent-time">Last event: {new Date(last.createdAt).toLocaleString()}</small>}
+            {last && <small className="st-agent-time">Last event: {new Date(last.createdAt).toLocaleString()} · {ageSeconds !== null && ageSeconds > 180 ? "No recent activity" : "Recent activity"}</small>}
             {last && Array.isArray(last.details.signals) && <div className="st-agent-signals">{(last.details.signals as Array<Record<string, unknown>>).map((signal, i) => <span key={i}>{String(signal.strategy)}: {String(signal.status)} · {String(signal.reason ?? "")}</span>)}</div>}
           </div><i className={"st-agent-dot " + (statusClass || "is-idle")} />
         </article>;
