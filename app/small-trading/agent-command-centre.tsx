@@ -58,7 +58,7 @@ export default function AgentCommandCentre() {
             <span className={"st-agent-state " + statusClass}>{status.replaceAll("_", " ")}</span>
             <small>{last ? last.summary + (last.symbol ? " · " + last.symbol : "") : agent.implementation}</small>
             {last && <small className="st-agent-time">Last event: {new Date(last.createdAt).toLocaleString()}</small>}
-            {last && Array.isArray(last.details.signals) && <div className="st-agent-signals">{(last.details.signals as Array<Record<string, unknown>>).map((signal, i) => <span key={i}>{String(signal.strategy)}: {String(signal.status)}</span>)}</div>}
+            {last && Array.isArray(last.details.signals) && <div className="st-agent-signals">{(last.details.signals as Array<Record<string, unknown>>).map((signal, i) => <span key={i}>{String(signal.strategy)}: {String(signal.status)} · {String(signal.reason ?? "")}</span>)}</div>}
           </div><i className={"st-agent-dot " + (statusClass || "is-idle")} />
         </article>;
       })}</div>}
