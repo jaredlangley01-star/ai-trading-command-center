@@ -1,14 +1,9 @@
-"""Observation-only worker runtime with persistent audit events and heartbeats.
-
-This process scans symbols and records research/strategy observations. It has no
-execution gateway and cannot place broker orders.
-"""
+"""Observation-only worker runtime with persistent audit events and heartbeats."""
 import os
 from .cycle import ObservationCycle
 from .health import Heartbeat
 from .scheduler import CycleScheduler
 from .storage import SQLiteStore
-
 
 class ObservationWorker:
     def __init__(self, cycle, store, symbols, interval_seconds=60):
@@ -30,6 +25,12 @@ class ObservationWorker:
                 "status": report.status,
                 "message": report.message,
                 "created_at": report.created_at.isoformat(),
+                "market": {
+                    "price": report.observed_price,
+                    "timestamp": report.market_timestamp.isoformat() if report.market_timestamp else None,
+                    "source": report.market_source,
+                    "volume": report.volume,
+                },
                 "signals": [
                     {
                         "strategy": getattr(signal, "strategy", "unknown"),
@@ -64,10 +65,14 @@ class ObservationWorker:
 
 def build_worker_from_environment():
     from .alpaca_market_data import AlpacaIEXMarketDataProvider
-
     symbols = os.getenv("SMALL_TRADING_SYMBOLS", "AAPL,MSFT,NVDA").split(",")
     interval = int(os.getenv("SMALL_TRADING_SCAN_INTERVAL_SECONDS", "60"))
     database_path = os.getenv("SMALL_TRADING_DATABASE_PATH", "data/trading.db")
     store = SQLiteStore(database_path)
-    provider = AlpacaIEXMarketDataProvider()
-    return ObservationWorker(ObservationCycle(provider), store, symbols, interval), store
+    try:
+        provider = AlpacaIEXMarketDataProvider()
+        worker = ObservationWorker(ObservationCycle(provider), store, symbols, interval)
+        return worker, store
+    except Exception:
+        store.close()
+        raise
