@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useZarRate } from "./use-zar";
 type BrokerPerformance = { status?:string; mode?:string; source?:string; orders_returned?:number; filled_orders?:number; partially_filled_orders?:number; filled_quantity_total?:number; symbols_with_fills?:string[]; realized_pnl?:number|null; realized_pnl_status?:string; note?:string; reason?:string; };
 type Performance = {
   mode?:string; source?:string; closed_positions?:number; open_positions?:number;
@@ -8,6 +9,7 @@ type Performance = {
   execution_enabled?:boolean; reconciliation_status?:string;
 };
 export default function PerformancePanel(){
+  const fx=useZarRate("USD");
   const [data,setData]=useState<Performance|null>(null);
   const [broker,setBroker]=useState<BrokerPerformance|null>(null);
   const [error,setError]=useState<string|null>(null);
@@ -37,13 +39,13 @@ export default function PerformancePanel(){
           <div><small>Win rate</small><b>{data.win_rate_percent===null||data.win_rate_percent===undefined?"—":data.win_rate_percent+"%"}</b></div>
         </div>
         <div className="st-decision-meta">
-          <span>Realized P&amp;L: $ {Number(data.realized_pnl??0).toFixed(2)}</span>
+          <span>Realized P&amp;L: {fx.format(data.realized_pnl)}</span>
           <span>Winners: {data.winning_positions??0}</span>
           <span>Losers: {data.losing_positions??0}</span>
-          <span>Gross profit: $ {Number(data.gross_profit??0).toFixed(2)}</span>
-          <span>Gross loss: $ {Number(data.gross_loss??0).toFixed(2)}</span>
+          <span>Gross profit: {fx.format(data.gross_profit)}</span>
+          <span>Gross loss: {fx.format(data.gross_loss)}</span>
         </div>
-        <p className="st-live-footnote">Source: {data.source}. Reconciliation: {data.reconciliation_status}. This is not your Alpaca account P&amp;L and does not demonstrate profitability.</p>
+        <p className="st-live-footnote">Source: {data.source}. Reconciliation: {data.reconciliation_status}. This is not your Alpaca account P&amp;L and does not demonstrate profitability. All USD amounts are converted to ZAR using the latest available rate. {fx.error ? "FX conversion unavailable." : ""}</p>
       </>}
     <div className="st-divider" />
     <div className="st-panel-head"><div><h2>Alpaca Paper performance activity</h2><p>Broker order history · separate from simulated ledger</p></div><span className="st-tag">{broker?.status??"CHECKING"}</span></div>
