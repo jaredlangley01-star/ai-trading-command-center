@@ -183,3 +183,31 @@ def test_healthz_is_minimal_and_available_without_bearer_token():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_decisions_endpoint_exposes_strategy_signal_history_without_risk_or_execution_claims():
+    class DecisionEventStore:
+        def list_events(self, limit):
+            return [{
+                "id": 12, "event_type": "OBSERVATION_CYCLE", "created_at": "2026-11-02T10:00:00+00:00",
+                "payload": {"symbol": "AAPL", "market": {"timestamp": "2026-11-02T10:00:00+00:00", "price": 200, "source": "ALPACA_IEX"},
+                            "signals": [{"strategy": "TREND", "status": "BUY", "score": 1.2, "reason": "FAST_SLOW_AVERAGE_ALIGNMENT"}],
+                            "execution_enabled": False}
+            }]
+    server = create_dashboard_server(Portfolio(), Health(), port=0, event_store=DecisionEventStore())
+    thread = _serve(server)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/api/decisions") as response:
+            payload = json.loads(response.read())
+        assert payload["status"] == "OBSERVATION_ONLY"
+        decision = payload["decisions"][0]
+        assert decision["symbol"] == "AAPL"
+        assert decision["strategy"] == "TREND"
+        assert decision["signal"] == "BUY"
+        assert decision["risk_status"] == "NOT_EVALUATED"
+        assert decision["execution_enabled"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
