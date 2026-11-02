@@ -32,6 +32,8 @@ def test_dashboard_api_is_read_only_and_reports_simulator_mode():
         assert status["mode"] == "PAPER_SIMULATOR"
         assert status["trading_enabled"] is False
         assert status["execution_api"] is False
+        with urlopen(base + "/api/broker") as response:
+            assert json.loads(response.read())["mode"] == "NOT_CONNECTED"
         with urlopen(base + "/api/health") as response:
             assert json.loads(response.read())["status"] == "UNKNOWN"
         try:
