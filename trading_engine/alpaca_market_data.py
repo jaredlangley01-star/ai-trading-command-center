@@ -84,14 +84,25 @@ class AlpacaIEXMarketDataProvider:
         # Alpaca returns newest-first; strategy windows must be chronological.
         return list(reversed(bars))
 
-    def latest_snapshot(self, symbol):
-        bar = self.get_bars(symbol, limit=1)[-1]
-        return MarketSnapshot(
-            symbol=bar.symbol, price=bar.close, timestamp=bar.timestamp,
-            source="ALPACA_IEX", volume=bar.volume,
+    def fetch_observation(self, symbol, limit=100):
+        """Fetch one bar window so price and strategy history share a source/time."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("LIMIT_MUST_BE_BETWEEN_1_AND_1000")
+        bars = self.get_bars(symbol, limit=limit)
+        latest = bars[-1]
+        snapshot = MarketSnapshot(
+            symbol=latest.symbol,
+            price=latest.close,
+            timestamp=latest.timestamp,
+            source="ALPACA_IEX",
+            volume=latest.volume,
         )
+        return snapshot, [bar.close for bar in bars]
+
+    def latest_snapshot(self, symbol):
+        return self.fetch_observation(symbol, 1)[0]
 
     def recent_closes(self, symbol, limit):
         if limit < 1:
             raise ValueError("limit must be positive")
-        return [bar.close for bar in self.get_bars(symbol, limit=min(limit, 1000))]
+        return self.fetch_observation(symbol, min(limit, 1000))[1]
