@@ -37,3 +37,11 @@ jobs:
         run: npm ci
       - name: Type-check dashboard
         run: npm run typecheck
+
+  worker-container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Build observation worker image (no push)
+        run: docker build --tag small-trading-worker:test .
