@@ -74,7 +74,7 @@ A Compose configuration is provided for a single Docker host:
     # and a newly generated random API token.
     docker compose -f docker-compose.small-trading.yml up -d --build
 
-The worker and API share one named durable Docker volume at /data. The API listens on the internal Compose network only; the file does not publish port 8765 to the public host. The Next.js server-side proxy must be placed on the same private network and use the API service address (http://dashboard-api:8765) with the same SMALL_TRADING_API_TOKEN. If the frontend is hosted separately, a private network or authenticated HTTPS reverse proxy is still required; do not expose the API port directly.
+The worker and API share one named durable Docker volume at /data. For the local-device setup, the API port is published only on 127.0.0.1:8765, so it is not exposed to other devices or the public internet. The Next.js server-side proxy must be placed on the same private network and use the API service address (http://dashboard-api:8765) with the same SMALL_TRADING_API_TOKEN. If the frontend is hosted separately, a private network or authenticated HTTPS reverse proxy is still required; do not expose the API port directly.
 
 The example environment file contains placeholders only. The real .env.small-trading is ignored by Git. Generate the API token locally and do not reuse the Alpaca key. Compose validation in CI checks configuration syntax, not successful broker connectivity, persistent-volume behavior on a particular host, TLS, network reachability, uptime, or market-data quality.
 
