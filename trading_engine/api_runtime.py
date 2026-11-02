@@ -25,7 +25,7 @@ def build_dashboard_server_from_environment():
         broker_reader = AlpacaPaperAccountReader()
     except AlpacaPaperAccountError:
         pass
-    server = create_dashboard_server(portfolio, health, broker_snapshot=broker_reader, host=host, port=port, access_token=token, event_store=store)
+    server = create_dashboard_server(portfolio, health, broker_snapshot=broker_reader, host=host, port=port, access_token=token, event_store=store, market_clock_snapshot=broker_reader)
     return server, store
 
 def main():
