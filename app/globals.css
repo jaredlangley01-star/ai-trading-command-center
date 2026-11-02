@@ -5055,3 +5055,8 @@ body {
 .st-event-copy b { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .st-event-copy small { color: var(--st-muted, #9298a5); font-size: 10px; }
 @media (max-width: 600px) { .st-event { flex-direction: column; gap: 6px; } }
+
+.st-signal-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.st-signal-chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--st-border, rgba(255,255,255,.1)); border-radius: 7px; padding: 5px 8px; font-size: 10px; }
+.st-signal-chip b { font-size: 10px; }
+.st-signal-chip span, .st-signal-chip small { color: var(--st-muted, #9298a5); }
