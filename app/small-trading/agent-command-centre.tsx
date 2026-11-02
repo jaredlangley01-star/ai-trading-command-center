@@ -9,7 +9,7 @@ const agents: Agent[] = [
   { id: "small_trading", name: "Small Trading Agent", purpose: "Evaluates Trend, Momentum, Breakout and Mean Reversion.", implementation: "Active baseline strategies" },
   { id: "risk_manager", name: "Risk Manager", purpose: "Applies deterministic limits before a trade can be considered.", implementation: "Active preliminary reviews; blocks approval until portfolio context is verified" },
   { id: "position_monitor", name: "Position Monitor", purpose: "Checks stop-loss, take-profit and end-of-day conditions.", implementation: "Active simulated position checks on each fresh symbol observation" },
-  { id: "performance_reporting", name: "Performance Agent", purpose: "Summarises account performance and trading outcomes.", implementation: "Role scaffold; broker reporting workflow not yet active" },
+  { id: "performance_reporting", name: "Performance Agent", purpose: "Summarises account performance and trading outcomes.", implementation: "Active simulated ledger reporting; not broker-reconciled" },
 ];
 function eventSummary(event: EventItem) {
   const p = event.payload ?? {};
