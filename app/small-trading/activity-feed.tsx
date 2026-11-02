@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 type EventItem = { id: number; event_type: string; created_at: string; payload: Record<string, unknown> };
 type EventsResponse = { events?: EventItem[]; error?: string };
+function strategyRows(event: EventItem) {
+  return Array.isArray(event.payload?.signals) ? event.payload.signals as Array<Record<string, unknown>> : [];
+}
 function detail(event: EventItem) {
   const p = event.payload ?? {};
   const symbol = typeof p.symbol === "string" ? p.symbol : "";
@@ -39,7 +42,7 @@ export default function ActivityFeed() {
   return <section className="st-card st-panel" id="activity">
     <div className="st-panel-head"><div><h2>Recent activity</h2><p>Read-only worker events · refreshes every 15 seconds</p></div><span className="st-tag">{events.length} EVENTS</span></div>
     {error ? <div className="st-empty"><b>Activity feed not connected</b><p>{error}</p><small>Events will appear after the worker and shared database are running.</small></div> : events.length === 0 ? <div className="st-empty"><b>No recorded activity yet</b><p>The worker has not written any observation events to the shared database.</p></div> :
-      <div className="st-event-list">{events.map(event => <article className="st-event" key={event.id}><span className="st-event-type">{event.event_type.replaceAll("_", " ")}</span><div className="st-event-copy"><b>{detail(event) || "Engine event"}</b><small>{new Date(event.created_at).toLocaleString()}</small></div></article>)}</div>}
+      <div className="st-event-list">{events.map(event => <article className="st-event" key={event.id}><span className="st-event-type">{event.event_type.replaceAll("_", " ")}</span><div className="st-event-copy"><b>{detail(event) || "Engine event"}</b><small>{new Date(event.created_at).toLocaleString()}</small>{event.event_type === "OBSERVATION_CYCLE" && <div className="st-signal-list">{strategyRows(event).map((signal, index) => <span className="st-signal-chip" key={index}><b>{String(signal.strategy ?? "Strategy")}</b><span>{String(signal.status ?? "UNKNOWN")}</span><small>Score {typeof signal.score === "number" ? signal.score.toFixed(1) : "—"}</small></span>)}</div>}</div></article>)}</div>}
     <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. This feed is informational and has no trading controls.</p>
   </section>;
 }
