@@ -15,6 +15,7 @@ import type {
   TradeRiskContext,
 } from "@/src/domain/models";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
+import { validatePaperRiskSnapshot } from "@/src/services/broker/risk-snapshot-validation";
 import { heartbeatIsFresh } from "@/src/services/diagnostics";
 import {
   evaluateSessionQuoteFreshness,
@@ -195,7 +196,7 @@ export async function POST(request: Request) {
             .maybeSingle(),
           supabase
             .from("paper_positions")
-            .select("symbol,quantity,entry_price,current_price,trade_origin")
+            .select("symbol,quantity,entry_price,current_price,trade_origin,last_synced_at")
             .eq("user_id", user.id)
             .in("status", ["OPEN", "EXIT_PENDING"]),
           supabase
@@ -205,7 +206,7 @@ export async function POST(request: Request) {
             .maybeSingle(),
           supabase
             .from("paper_portfolio_current")
-            .select("equity,cash,buying_power,as_of")
+            .select("source,equity,cash,buying_power,open_exposure,position_count,open_order_count,as_of")
             .eq("user_id", user.id)
             .maybeSingle(),
           supabase
@@ -239,10 +240,25 @@ export async function POST(request: Request) {
         "WORKER_UNAVAILABLE: Railway Trading Worker heartbeat is stale or missing.",
         true,
       );
-    if (!portfolioResult.data)
+    if (
+      portfolioResult.error ||
+      positionsResult.error ||
+      !portfolioResult.data
+    )
       throw new BrokerError(
         "SYNC_FAILED",
-        "SYNC_FAILED: synchronized PAPER portfolio is unavailable.",
+        "SYNC_FAILED: synchronized PAPER portfolio or positions are unavailable.",
+        true,
+      );
+    const brokerSnapshot = validatePaperRiskSnapshot(
+      portfolioResult.data,
+      positionsResult.data ?? [],
+      { maxAgeMs: Number(process.env.PAPER_PORTFOLIO_MAX_AGE_MS ?? 180_000) },
+    );
+    if (!brokerSnapshot.valid)
+      throw new BrokerError(
+        "SYNC_FAILED",
+        `SYNC_FAILED: PAPER broker risk snapshot rejected (${brokerSnapshot.reason}).`,
         true,
       );
     if (!quoteResult.data)
@@ -256,13 +272,7 @@ export async function POST(request: Request) {
       ...(settingsResult.data?.settings as Partial<RiskSettings> | null),
     };
     const positionRows = positionsResult.data ?? [];
-    const portfolioExposure = positionRows.reduce(
-      (total, position) =>
-        total +
-        Number(position.quantity) *
-          Number(position.current_price ?? position.entry_price),
-      0,
-    );
+    const portfolioExposure = brokerSnapshot.portfolioExposure;
     const assetExposure = positionRows
       .filter((position) => position.symbol === body.symbol.toUpperCase())
       .reduce(
@@ -317,7 +327,7 @@ export async function POST(request: Request) {
       }
     }
     const expectedPrice = Number(body.limitPrice ?? quoteResult.data.last ?? 0);
-    const portfolioValue = Number(portfolioResult.data.equity ?? 0);
+    const portfolioValue = brokerSnapshot.portfolioValue;
     const highWaterMark = Math.max(
       portfolioValue,
       Number(portfolioStateResult.data?.high_water_mark ?? 0),
