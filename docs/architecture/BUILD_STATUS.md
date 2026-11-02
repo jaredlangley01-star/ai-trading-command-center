@@ -187,3 +187,14 @@ Added a read-only Alpaca Paper API clock reader (GET /v2/clock), a protected das
 Added a Docker Compose deployment definition for the observation worker and read-only API. Both services use the same named persistent volume and database path; the API is exposed only on the internal Compose network, not published to the host. Added a placeholder-only environment template, ensured the real local environment file remains Git-ignored, documented private-network requirements for the Next.js proxy, and added a CI Compose configuration validation job.
 
 This is a reproducible deployment bundle for a single Docker host, not a hosted deployment. No cloud provider, domain, paid service, broker credentials or account has been activated. Compose validation and the updated application checks are pending.
+
+
+## Milestone 21: single-service hosted runtime and Render blueprint
+
+Added `trading_engine/app_runtime.py`, which starts the observation worker and read-only dashboard API in one process/container, shares one configured SQLite database path on one persistent disk, binds the API to the platform-provided port, handles termination signals, and fails the service if either runtime thread stops. Added tests for platform-port binding and preservation of explicit configuration.
+
+Added `render.yaml` as an optional single-service deployment blueprint. It specifies a paid Starter web service, a 1 GB persistent disk, generated API bearer token, IEX market data configuration, and private secret inputs for Alpaca credentials. The health-check route is a minimal `/healthz` response that does not reveal account or worker data and does not require the bearer token. The full API remains token-protected.
+
+The first CI run for the combined runtime, health-check endpoint, Render blueprint, Docker Compose config and frontend passed all five jobs: Python tests, dashboard TypeScript type-check, Docker build, Compose config validation, and Render YAML syntax validation (run 41450305621). A subsequent review found and corrected the Render feed variable name so it matches the Alpaca adapter's `APCA_DATA_FEED` setting. That one-line correction is committed after the passing run and requires a fresh CI run.
+
+No Render service has been created, no paid plan approved, no Alpaca credentials configured, and no broker account connected. The blueprint is configuration only. The service cannot start its market observation worker until valid Alpaca Paper/data credentials are securely configured. It remains observation-only; no order placement route exists.
