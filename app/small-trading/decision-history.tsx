@@ -42,6 +42,6 @@ export default function DecisionHistory() {
           <div className="st-decision-meta"><span>Score {Number(d.score??0).toFixed(1)}</span><span>Risk: {d.risk_status.replaceAll("_"," ")}</span><span>{d.risk_reason.replaceAll("_"," ")}</span><span>Proposed qty: {d.proposed_quantity}</span><span>Est. risk: $ {Number(d.estimated_loss??0).toFixed(2)}</span><span>No order submitted</span></div>
         </div>
       </article>)}</div>}
-    <p className="st-live-footnote">Last checked: {checked?new Date(checked).toLocaleTimeString():"—"}. A BUY/SELL here is a strategy signal, not an approved trade recommendation. Risk approval and execution are not connected.</p>
+    <p className="st-live-footnote">Last checked: {checked?new Date(checked).toLocaleTimeString():"—"}. A BUY/SELL here is a strategy signal, not an approved trade recommendation. Preliminary risk reviews run, but candidates remain blocked until portfolio context is verified. No order execution is connected.</p>
   </section>;
 }
