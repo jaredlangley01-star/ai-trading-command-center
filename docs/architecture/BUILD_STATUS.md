@@ -224,3 +224,8 @@ The event store now explicitly closes every short-lived SQLite connection, uses 
 Added a read-only `/api/decisions` endpoint derived from persisted observation-cycle events. It exposes each strategy's symbol, signal, score, reason, observation timestamp, market price and data source. Every row explicitly reports `risk_status=NOT_EVALUATED` and `execution_enabled=false`; this is intentional because signal generation is not yet connected to the risk gate or execution service.
 
 The dashboard now includes a filterable Strategy Decision Journal with counts for evaluations, directional signals and no-signal outcomes. It refreshes every 10 seconds and makes clear that BUY/SELL signals are not approved trade recommendations. The endpoint does not create proposals or place orders.
+
+
+## Milestone 26: guided Mac startup and safe shutdown
+
+Added `scripts/start-small-trading-mac.sh` and `scripts/stop-small-trading-mac.sh`. The startup helper checks Docker Desktop, Node.js and OpenSSL; creates private local env files; securely prompts for missing Alpaca Paper credentials without echoing the secret; generates a random API bearer token; starts the Docker worker/API services; installs dashboard dependencies if needed; and launches the local dashboard. The stop helper stops the containers without deleting the persistent Docker volume. User must still install prerequisites, obtain Alpaca Paper credentials and run the script on their own Mac. This has not been run on the user's device.
