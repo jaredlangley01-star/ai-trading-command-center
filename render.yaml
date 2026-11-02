@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: starter
     dockerCommand: small-trading-app
-    healthCheckPath: /api/health
+    healthCheckPath: /healthz
     autoDeploy: false
     disk:
       name: small-trading-data
