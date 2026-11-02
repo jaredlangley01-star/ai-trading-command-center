@@ -1,0 +1,46 @@
+"use client";
+import { useEffect, useState } from "react";
+type Performance = {
+  mode?:string; source?:string; closed_positions?:number; open_positions?:number;
+  winning_positions?:number; losing_positions?:number; win_rate_percent?:number|null;
+  realized_pnl?:number; gross_profit?:number; gross_loss?:number;
+  execution_enabled?:boolean; reconciliation_status?:string;
+};
+export default function PerformancePanel(){
+  const [data,setData]=useState<Performance|null>(null);
+  const [error,setError]=useState<string|null>(null);
+  const [checked,setChecked]=useState<string|null>(null);
+  useEffect(()=>{
+    let active=true;
+    async function refresh(){
+      try{
+        const response=await fetch("/api/small-trading/performance",{cache:"no-store"});
+        const payload=await response.json() as Performance;
+        if(!response.ok)throw new Error("PERFORMANCE_SUMMARY_UNAVAILABLE");
+        if(active){setData(payload);setError(null);setChecked(new Date().toISOString());}
+      }catch(e){if(active)setError(e instanceof Error?e.message:"PERFORMANCE_SUMMARY_UNAVAILABLE");}
+    }
+    void refresh();const timer=window.setInterval(()=>void refresh(),15000);
+    return()=>{active=false;window.clearInterval(timer);};
+  },[]);
+  return <section className="st-card st-panel" id="performance">
+    <div className="st-panel-head"><div><h2>Performance & Reporting</h2><p>Results calculated from the simulated position ledger only</p></div><span className="st-tag">SIMULATOR DATA</span></div>
+    {error||!data?<div className="st-empty"><b>Performance data not connected</b><p>{error??"Waiting for the worker to record a performance snapshot."}</p></div>:
+      <>
+        <div className="st-decision-summary">
+          <div><small>Closed positions</small><b>{data.closed_positions??0}</b></div>
+          <div><small>Open positions</small><b>{data.open_positions??0}</b></div>
+          <div><small>Win rate</small><b>{data.win_rate_percent===null||data.win_rate_percent===undefined?"—":data.win_rate_percent+"%"}</b></div>
+        </div>
+        <div className="st-decision-meta">
+          <span>Realized P&amp;L: $ {Number(data.realized_pnl??0).toFixed(2)}</span>
+          <span>Winners: {data.winning_positions??0}</span>
+          <span>Losers: {data.losing_positions??0}</span>
+          <span>Gross profit: $ {Number(data.gross_profit??0).toFixed(2)}</span>
+          <span>Gross loss: $ {Number(data.gross_loss??0).toFixed(2)}</span>
+        </div>
+        <p className="st-live-footnote">Source: {data.source}. Reconciliation: {data.reconciliation_status}. This is not your Alpaca account P&amp;L and does not demonstrate profitability.</p>
+      </>}
+    <p className="st-live-footnote">Last checked: {checked?new Date(checked).toLocaleTimeString():"—"}.</p>
+  </section>;
+}
