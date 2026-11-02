@@ -54,3 +54,12 @@ Added an event-backed position ledger, simulated-fill validation, position marki
 ## Next milestone
 
 Add account/portfolio reconciliation, dashboard read API, system heartbeat and runtime checks. Then run CI, review broker eligibility/data access for the user's jurisdiction, and only after that connect a real PAPER account.
+
+
+## Milestone 6: read-only portfolio and health snapshots
+
+Added a read-only portfolio snapshot for open simulated positions, gross exposure, realised P&L from the position ledger, and unrealised P&L using the latest recorded mark (or entry price when unmarked). Added heartbeat recording and a health snapshot that reports UNKNOWN, OK, DEGRADED, ERROR or STALE based on the most recent heartbeat. Fixed execution idempotency lookup to use the SQLite event-key index rather than scanning only the latest 10,000 events.
+
+Important accounting limitation: the simulator does not settle cash when a position is closed. The portfolio snapshot therefore explicitly labels broker cash as unsettled and reconciliation as NOT_RECONCILED. It does not calculate or display account equity. This is not a broker account statement.
+
+The heartbeat classes are library components only; no hosted process is currently recording heartbeats. The dashboard/API, real quote source, real broker PAPER connection, production scheduling, deployment and test execution remain outstanding. No live trading path was added.
