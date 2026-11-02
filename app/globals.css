@@ -5080,3 +5080,22 @@ body {
 .st-agent-signals{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
 .st-agent-signals span{padding:4px 6px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:5px;font-size:9px;color:var(--st-muted,#9298a5)}
 .st-agent-disclaimer{margin-top:14px;padding:12px;border:1px solid var(--st-border,rgba(255,255,255,.08));border-radius:8px;color:var(--st-muted,#9298a5);font-size:10px;line-height:1.6}
+
+.st-agent-timeline{margin-top:20px;border-top:1px solid var(--st-border,rgba(255,255,255,.1));padding-top:18px}
+.st-agent-timeline-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+.st-agent-timeline-head h3{margin:0;font-size:14px}
+.st-agent-timeline-head p{margin:4px 0 0;color:var(--st-muted,#9298a5);font-size:11px}
+.st-agent-timeline-head select{max-width:190px;background:#111a29;color:inherit;border:1px solid var(--st-border,rgba(255,255,255,.14));border-radius:7px;padding:8px;font-size:11px}
+.st-agent-timeline-empty{padding:18px;border:1px dashed var(--st-border,rgba(255,255,255,.16));border-radius:8px;color:var(--st-muted,#9298a5);font-size:11px}
+.st-agent-timeline-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0}
+.st-agent-timeline-list li{display:flex;gap:12px;padding:13px 4px;border-bottom:1px solid var(--st-border,rgba(255,255,255,.07))}
+.st-agent-timeline-marker{width:8px;height:8px;flex:0 0 8px;margin-top:5px;border-radius:50%;background:#55ce91}
+.st-agent-timeline-marker.is-working{background:#65a5ff}
+.st-agent-timeline-marker.is-warning{background:#e9b45d}
+.st-agent-timeline-content{min-width:0;flex:1}
+.st-agent-timeline-title{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.st-agent-timeline-title b{font-size:11px}
+.st-agent-timeline-title span{font:700 9px monospace;letter-spacing:.04em;color:var(--st-muted,#9298a5)}
+.st-agent-timeline-content p{margin:5px 0;color:var(--st-text,#e8ebf1);font-size:11px;line-height:1.5}
+.st-agent-timeline-content small{font-size:9px;color:var(--st-muted,#9298a5)}
+@media(max-width:600px){.st-agent-timeline-head{align-items:flex-start;flex-direction:column}.st-agent-timeline-head select{max-width:none;width:100%}}
