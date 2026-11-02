@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useZarRate } from "./use-zar";
 type Decision = { event_id:number; symbol:string; observed_at:string; market_price:number|null; market_source:string|null; strategy:string; signal:string; score:number; reason:string; execution_enabled:boolean; risk_status:string; risk_reason:string; proposed_quantity:number; estimated_loss:number; stop_loss:number|null; take_profit:number|null };
 type Response = { status?:string; decisions?:Decision[]; error?:string };
 const strategies=["ALL","TREND","MOMENTUM","BREAKOUT","MEAN_REVERSION"];
 export default function DecisionHistory() {
+  const fx=useZarRate("USD");
   const [decisions,setDecisions]=useState<Decision[]>([]);
   const [filter,setFilter]=useState("ALL");
   const [error,setError]=useState<string|null>(null);
@@ -38,10 +40,10 @@ export default function DecisionHistory() {
     {error?<div className="st-empty"><b>Decision journal not connected</b><p>{error}</p></div>:filtered.length===0?<div className="st-empty"><b>No strategy decisions recorded yet</b><p>Results will appear here after the worker completes market scans.</p></div>:
       <div className="st-decision-list">{filtered.slice(0,80).map((d,i)=><article className="st-decision-row" key={d.event_id+"-"+d.strategy+"-"+i}>
         <div className="st-decision-main"><div className="st-decision-title"><b>{d.symbol}</b><span>{d.strategy.replaceAll("_"," ")}</span><strong className={d.signal==="BUY"?"is-buy":d.signal==="SELL"?"is-sell":""}>{d.signal.replaceAll("_"," ")}</strong></div>
-          <p>{d.reason.replaceAll("_"," ")}</p>{d.risk_status!=="NOT_APPLICABLE" && <p>Illustrative levels: stop $ {d.stop_loss?.toFixed(2)??"—"} · target $ {d.take_profit?.toFixed(2)??"—"}</p>}<small>{d.observed_at?new Date(d.observed_at).toLocaleString():"Time unavailable"} · {d.market_source??"Unknown data source"}{typeof d.market_price==="number"?" · $"+d.market_price.toFixed(2):""}</small>
-          <div className="st-decision-meta"><span>Score {Number(d.score??0).toFixed(1)}</span><span>Risk: {d.risk_status.replaceAll("_"," ")}</span><span>{d.risk_reason.replaceAll("_"," ")}</span><span>Proposed qty: {d.proposed_quantity}</span><span>Est. risk: $ {Number(d.estimated_loss??0).toFixed(2)}</span><span>No order submitted</span></div>
+          <p>{d.reason.replaceAll("_"," ")}</p>{d.risk_status!=="NOT_APPLICABLE" && <p>Illustrative levels: stop $ {(d.stop_loss==null?"—":fx.format(d.stop_loss))} · target $ {(d.take_profit==null?"—":fx.format(d.take_profit))}</p>}<small>{d.observed_at?new Date(d.observed_at).toLocaleString():"Time unavailable"} · {d.market_source??"Unknown data source"}{typeof d.market_price==="number"?" · "+fx.format(d.market_price):""}</small>
+          <div className="st-decision-meta"><span>Score {Number(d.score??0).toFixed(1)}</span><span>Risk: {d.risk_status.replaceAll("_"," ")}</span><span>{d.risk_reason.replaceAll("_"," ")}</span><span>Proposed qty: {d.proposed_quantity}</span><span>Est. risk: {fx.format(d.estimated_loss)}</span><span>No order submitted</span></div>
         </div>
       </article>)}</div>}
-    <p className="st-live-footnote">Last checked: {checked?new Date(checked).toLocaleTimeString():"—"}. A BUY/SELL here is a strategy signal, not an approved trade recommendation. Preliminary risk reviews run, but candidates remain blocked until portfolio context is verified. No order execution is connected.</p>
+    <p className="st-live-footnote">Last checked: {checked?new Date(checked).toLocaleTimeString():"—"}. All USD amounts are converted to ZAR using the latest available rate. {fx.error ? "FX conversion unavailable." : ""} A BUY/SELL here is a strategy signal, not an approved trade recommendation. Preliminary risk reviews run, but candidates remain blocked until portfolio context is verified. No order execution is connected.</p>
   </section>;
 }
