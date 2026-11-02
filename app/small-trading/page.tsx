@@ -2,6 +2,7 @@ import Link from "next/link";
 import LiveSystemStatus from "./live-system-status";
 import BrokerReadOnlyPanel from "./broker-read-only-panel";
 import ActivityFeed from "./activity-feed";
+import MarketDataPanel from "./market-data-panel";
 const agents = [
   ["Chief Trading Agent", "Orchestration layer", "Awaiting connection"],
   ["Research Agent", "Market scanning", "Awaiting market data"],
@@ -31,6 +32,7 @@ export default function SmallTradingDashboard() {
         </section>
       </div>
       <BrokerReadOnlyPanel />
+      <MarketDataPanel />
       <section className="st-card st-panel" id="agents"><div className="st-panel-head"><div><h2>Agent operations</h2><p>Six initial roles in the Small Trading architecture</p></div><span className="st-tag">FOUNDATION STAGE</span></div>
         <div className="st-agent-grid">{agents.map(([name, description, status], index) => <article className="st-agent" key={name}><span className="st-agent-number">0{index + 1}</span><div><b>{name}</b><p>{description}</p><small>{status}</small></div><i className="st-agent-dot" /></article>)}</div>
       </section>
