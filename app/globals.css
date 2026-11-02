@@ -5062,3 +5062,21 @@ body {
 .st-signal-chip span, .st-signal-chip small { color: var(--st-muted, #9298a5); }
 
 .st-market-meta{display:block;margin-top:4px;color:var(--st-muted,#8b93a5);font-size:11px;font-weight:400}
+
+/* Agent command centre: statuses are derived from persisted audit events */
+.st-agent-live{align-items:flex-start;min-height:170px}
+.st-agent-live-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:7px}
+.st-agent-live-copy>p{margin:0;color:var(--st-muted,#9298a5);font-size:11px;line-height:1.45}
+.st-agent-live-copy>small{font-size:10px;color:var(--st-muted,#9298a5);line-height:1.45}
+.st-agent-state{display:inline-flex;align-self:flex-start;padding:4px 7px;border-radius:5px;border:1px solid #39465a;color:#aab6c8;font:700 9px monospace;letter-spacing:.04em}
+.st-agent-state.is-ok{color:#65d6a0;border-color:#28553f;background:#10251c}
+.st-agent-state.is-working{color:#82b5ff;border-color:#2b4d7c;background:#12223a}
+.st-agent-state.is-warning{color:#efbd69;border-color:#624b2a;background:#292012}
+.st-agent-dot.is-idle{background:#667085}
+.st-agent-dot.is-working{background:#65a5ff;box-shadow:0 0 0 4px #65a5ff22}
+.st-agent-dot.is-warning{background:#e9b45d}
+.st-agent-dot.is-ok{background:#55ce91}
+.st-agent-time{opacity:.8}
+.st-agent-signals{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
+.st-agent-signals span{padding:4px 6px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:5px;font-size:9px;color:var(--st-muted,#9298a5)}
+.st-agent-disclaimer{margin-top:14px;padding:12px;border:1px solid var(--st-border,rgba(255,255,255,.08));border-radius:8px;color:var(--st-muted,#9298a5);font-size:10px;line-height:1.6}
