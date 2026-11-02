@@ -50,3 +50,16 @@ Environment variables:
 The API exposes only read-only status, health, portfolio and broker endpoints. It has no order submission, amendment, cancellation or position-close route. The Next.js server proxy requires \`SMALL_TRADING_BACKEND_URL\` and \`SMALL_TRADING_API_TOKEN\`; keep both server-side and never use a \`NEXT_PUBLIC_\` prefix.
 
 The API process and observation worker are separate services and must share the same durable SQLite database path if the dashboard is expected to display worker heartbeats. The current API uses a local simulator portfolio snapshot for its legacy portfolio endpoint; the broker panel uses broker-reported account, positions and recent orders and does not substitute simulator values.
+
+
+## Container commands
+
+The same image can run either process. Start the observation worker with the default command:
+
+    docker run --restart unless-stopped --env-file .env --mount type=volume,src=small-trading-data,dst=/data small-trading-worker:local
+
+Start the read-only API as a separate container using the same durable volume and shared API token:
+
+    docker run --restart unless-stopped --env-file .env --mount type=volume,src=small-trading-data,dst=/data small-trading-worker:local small-trading-api
+
+The .env file is an operator-managed local example only; do not commit it or upload it to source control. On a hosted platform, use its encrypted environment/secret settings instead. The API should be reachable by the Next.js server proxy over a private network or authenticated HTTPS endpoint. Do not expose the Python API directly to the public internet without TLS termination and the bearer-token guard.
