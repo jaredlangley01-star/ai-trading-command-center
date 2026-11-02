@@ -12,6 +12,7 @@ dependencies = []
 [project.scripts]
 small-trading-worker = "trading_engine.runtime:main"
 small-trading-api = "trading_engine.api_runtime:main"
+small-trading-app = "trading_engine.app_runtime:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
