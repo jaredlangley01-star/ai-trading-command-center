@@ -5060,3 +5060,5 @@ body {
 .st-signal-chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--st-border, rgba(255,255,255,.1)); border-radius: 7px; padding: 5px 8px; font-size: 10px; }
 .st-signal-chip b { font-size: 10px; }
 .st-signal-chip span, .st-signal-chip small { color: var(--st-muted, #9298a5); }
+
+.st-market-meta{display:block;margin-top:4px;color:var(--st-muted,#8b93a5);font-size:11px;font-weight:400}
