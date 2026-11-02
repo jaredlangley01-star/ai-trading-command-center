@@ -191,7 +191,7 @@ def test_decisions_endpoint_exposes_strategy_signal_history_without_risk_or_exec
             return [{
                 "id": 12, "event_type": "OBSERVATION_CYCLE", "created_at": "2026-11-02T10:00:00+00:00",
                 "payload": {"symbol": "AAPL", "market": {"timestamp": "2026-11-02T10:00:00+00:00", "price": 200, "source": "ALPACA_IEX"},
-                            "signals": [{"strategy": "TREND", "status": "BUY", "score": 1.2, "reason": "FAST_SLOW_AVERAGE_ALIGNMENT"}],
+                            "signals": [{"strategy": "TREND", "status": "BUY", "score": 1.2, "reason": "FAST_SLOW_AVERAGE_ALIGNMENT", "risk": {"status": "REJECTED", "reason": "PORTFOLIO_CONTEXT_UNVERIFIED", "proposed_quantity": 1, "estimated_loss": 2.0}}],
                             "execution_enabled": False}
             }]
     server = create_dashboard_server(Portfolio(), Health(), port=0, event_store=DecisionEventStore())
@@ -205,7 +205,9 @@ def test_decisions_endpoint_exposes_strategy_signal_history_without_risk_or_exec
         assert decision["symbol"] == "AAPL"
         assert decision["strategy"] == "TREND"
         assert decision["signal"] == "BUY"
-        assert decision["risk_status"] == "NOT_EVALUATED"
+        assert decision["risk_status"] == "REJECTED"
+        assert decision["risk_reason"] == "PORTFOLIO_CONTEXT_UNVERIFIED"
+        assert decision["proposed_quantity"] == 1
         assert decision["execution_enabled"] is False
     finally:
         server.shutdown()
