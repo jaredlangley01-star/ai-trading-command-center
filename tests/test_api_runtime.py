@@ -27,3 +27,17 @@ def test_api_runtime_starts_read_only_without_broker_credentials(tmp_path, monke
         server.server_close()
         thread.join(timeout=2)
         store.close()
+
+
+def test_dashboard_runtime_ignores_example_placeholder_broker_credentials(monkeypatch, tmp_path):
+    from trading_engine.api_runtime import build_dashboard_server_from_environment
+    monkeypatch.setenv("APCA_API_KEY_ID", "replace-with-paper-account-key")
+    monkeypatch.setenv("APCA_API_SECRET_KEY", "replace-with-paper-account-secret")
+    monkeypatch.setenv("SMALL_TRADING_DATABASE_PATH", str(tmp_path / "demo-api.db"))
+    monkeypatch.setenv("SMALL_TRADING_API_TOKEN", "test-token")
+    server, store = build_dashboard_server_from_environment()
+    try:
+        assert server.RequestHandlerClass
+    finally:
+        server.server_close()
+        store.close()
