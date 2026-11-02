@@ -63,7 +63,7 @@ class AlpacaIEXMarketDataProvider:
             "timeframe": timeframe,
             "limit": limit,
             "feed": self.feed,
-            "sort": "asc",
+            "sort": "desc",
         })
         bars = []
         for item in payload.get("bars", []):
@@ -81,7 +81,8 @@ class AlpacaIEXMarketDataProvider:
             ))
         if not bars:
             raise AlpacaMarketDataError(f"NO_BARS_RETURNED_FOR_{symbol}")
-        return bars
+        # Alpaca returns newest-first; strategy windows must be chronological.
+        return list(reversed(bars))
 
     def latest_snapshot(self, symbol):
         bar = self.get_bars(symbol, limit=1)[-1]
