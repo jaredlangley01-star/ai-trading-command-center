@@ -82,6 +82,11 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                             "take_profit": (signal.get("risk") or {}).get("take_profit"),
                         })
                 return self._send(200, {"status": "OBSERVATION_ONLY", "decisions": decisions[:200]})
+            if parsed.path == "/api/performance":
+                if event_store is None:
+                    return self._send(503, {"status": "UNKNOWN", "execution_enabled": False})
+                from .performance import PerformanceReportingAgent
+                return self._send(200, PerformanceReportingAgent(event_store).snapshot())
             if parsed.path == "/api/market":
                 if event_store is None:
                     return self._send(503, {"status": "UNKNOWN", "observations": []})
