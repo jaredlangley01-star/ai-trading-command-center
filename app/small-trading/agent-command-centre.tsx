@@ -7,7 +7,7 @@ const agents: Agent[] = [
   { id: "chief_orchestrator", name: "Chief Trading Agent", purpose: "Coordinates each market scan and records its outcome.", implementation: "Active orchestration" },
   { id: "research", name: "Research Agent", purpose: "Checks market data availability and freshness.", implementation: "Active data validation" },
   { id: "small_trading", name: "Small Trading Agent", purpose: "Evaluates Trend, Momentum, Breakout and Mean Reversion.", implementation: "Active baseline strategies" },
-  { id: "risk_manager", name: "Risk Manager", purpose: "Applies deterministic limits before a trade can be considered.", implementation: "Risk module built; not yet in the recurring worker cycle" },
+  { id: "risk_manager", name: "Risk Manager", purpose: "Applies deterministic limits before a trade can be considered.", implementation: "Active preliminary reviews; blocks approval until portfolio context is verified" },
   { id: "position_monitor", name: "Position Monitor", purpose: "Checks stop-loss, take-profit and end-of-day conditions.", implementation: "Simulator lifecycle built; not yet connected to a live quote loop" },
   { id: "performance_reporting", name: "Performance Agent", purpose: "Summarises account performance and trading outcomes.", implementation: "Role scaffold; broker reporting workflow not yet active" },
 ];
