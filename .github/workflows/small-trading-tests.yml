@@ -56,3 +56,12 @@ jobs:
         run: |
           cp .env.small-trading.example .env.small-trading
           docker compose -f docker-compose.small-trading.yml config --quiet
+
+
+  render-blueprint-config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Validate Render Blueprint YAML syntax
+        run: ruby -e "require 'yaml'; YAML.load_file('render.yaml')"
