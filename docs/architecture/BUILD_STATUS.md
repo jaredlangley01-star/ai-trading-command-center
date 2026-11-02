@@ -152,3 +152,8 @@ CI run 41445582388 passed all three jobs (Python tests, dashboard type-check and
 ## Current operational truth
 
 The worker and API are separate processes and must share the same durable database path for heartbeat and activity visibility. The broker panel reads Alpaca Paper account information only when credentials are configured. The portfolio endpoint still represents the local simulator and is explicitly NOT_RECONCILED; it must not be interpreted as the real broker account. No Alpaca credentials are configured, no host is provisioned, and nothing is deployed. The worker remains observation-only; there is no live execution path.
+
+
+## Milestone 16: auditable market observations
+
+Each observation-cycle event now stores the market price, source, bar timestamp and volume used for strategy evaluation, alongside all four strategy outcomes and reasons. Cycle reports expose the same market metadata, and the dashboard activity feed displays the observed price and data source. Tests assert that fixture observations preserve this metadata. Fixture data remains explicitly labelled IN_MEMORY_FIXTURE and must not be mistaken for live market observations. The change is committed; CI verification is pending.
