@@ -7,6 +7,7 @@ from ipaddress import ip_address
 from urllib.parse import urlsplit, parse_qs
 from datetime import datetime, timezone
 from .agents import MARKET_DATA_MAX_AGE_SECONDS
+from .reconciliation import build_broker_reconciliation
 
 
 def _is_loopback(host):
@@ -127,14 +128,22 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                     return self._send(200, payload)
                 except Exception:
                     return self._send(503, {"status": "UNAVAILABLE", "read_only": True, "error": "MARKET_CLOCK_READ_FAILED"})
-            if parsed.path == "/api/broker":
+            if parsed.path in ("/api/broker", "/api/reconciliation"):
                 if broker_snapshot is None:
-                    return self._send(503, {"mode": "NOT_CONNECTED", "read_only": True})
+                    unavailable = {"mode": "NOT_CONNECTED", "read_only": True}
+                    if parsed.path == "/api/reconciliation":
+                        unavailable = {"status": "BLOCKED", "reason": "BROKER_NOT_CONNECTED", "read_only": True, "risk_approval_enabled": False, "execution_enabled": False}
+                    return self._send(503, unavailable)
                 try:
                     payload = broker_snapshot() if callable(broker_snapshot) else broker_snapshot.snapshot()
+                    if parsed.path == "/api/reconciliation":
+                        return self._send(200, build_broker_reconciliation(payload))
                     return self._send(200, payload)
                 except Exception:
-                    return self._send(503, {"mode": "UNAVAILABLE", "read_only": True, "error": "BROKER_READ_FAILED"})
+                    error = {"mode": "UNAVAILABLE", "read_only": True, "error": "BROKER_READ_FAILED"}
+                    if parsed.path == "/api/reconciliation":
+                        error = {"status": "BLOCKED", "reason": "BROKER_READ_FAILED", "read_only": True, "risk_approval_enabled": False, "execution_enabled": False}
+                    return self._send(503, error)
             if parsed.path == "/api/health":
                 return self._send(200, health_snapshot.build())
             if parsed.path == "/api/portfolio":
