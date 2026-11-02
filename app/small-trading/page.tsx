@@ -14,6 +14,7 @@ export default function SmallTradingDashboard() {
       <a className="st-nav active" href="#overview">▦ <span>Overview</span></a>
       <a className="st-nav" href="#agents">◎ <span>AI Agents</span></a>
       <a className="st-nav" href="#positions">▤ <span>Positions</span></a>
+      <a className="st-nav" href="#decisions">⌁ <span>Decision Journal</span></a>
       <a className="st-nav" href="#activity">◷ <span>Activity</span></a>
       <div className="st-sidebar-bottom"><div className="st-mode"><i /> PAPER ONLY</div><p>Live trading is disabled in this build.</p><Link href="/" className="st-back">← Existing command center</Link></div>
     </aside>
