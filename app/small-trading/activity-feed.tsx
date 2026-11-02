@@ -1,18 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useZarRate } from "./use-zar";
 type EventItem = { id: number; event_type: string; created_at: string; payload: Record<string, unknown> };
 type EventsResponse = { events?: EventItem[]; error?: string };
 function strategyRows(event: EventItem) {
   return Array.isArray(event.payload?.signals) ? event.payload.signals as Array<Record<string, unknown>> : [];
 }
-function detail(event: EventItem) {
+function detail(event: EventItem, formatMoney: (value: number | string | null | undefined) => string) {
   const p = event.payload ?? {};
   const symbol = typeof p.symbol === "string" ? p.symbol : "";
   const message = typeof p.message === "string" ? p.message : "";
   const status = typeof p.status === "string" ? p.status : "";
   const signals = Array.isArray(p.signals) ? p.signals.length : 0;
   const market = p.market && typeof p.market === "object" ? p.market as Record<string, unknown> : {};
-  const price = typeof market.price === "number" ? market.price.toFixed(2) : null;
+  const price = typeof market.price === "number" ? formatMoney(market.price) : null;
   const source = typeof market.source === "string" ? market.source : "";
   if (event.event_type === "OBSERVATION_CYCLE") return [symbol, price ? "Price " + price : "", source, status, signals ? signals + " strategy evaluations" : ""].filter(Boolean).join(" · ");
   if (event.event_type === "OBSERVATION_ERROR") return [symbol, typeof p.error_type === "string" ? p.error_type : "Worker error", message].filter(Boolean).join(" · ");
@@ -30,6 +31,7 @@ function detail(event: EventItem) {
   return Object.entries(p).filter(([, v]) => v === null || ["string", "number", "boolean"].includes(typeof v)).slice(0, 3).map(([k, v]) => k + ": " + String(v)).join(" · ");
 }
 export default function ActivityFeed() {
+  const fx = useZarRate("USD");
   const [events, setEvents] = useState<EventItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export default function ActivityFeed() {
   return <section className="st-card st-panel" id="activity">
     <div className="st-panel-head"><div><h2>Recent activity</h2><p>Read-only worker events · refreshes every 15 seconds</p></div><span className="st-tag">{events.length} EVENTS</span></div>
     {error ? <div className="st-empty"><b>Activity feed not connected</b><p>{error}</p><small>Events will appear after the worker and shared database are running.</small></div> : events.length === 0 ? <div className="st-empty"><b>No recorded activity yet</b><p>The worker has not written any observation events to the shared database.</p></div> :
-      <div className="st-event-list">{events.map(event => <article className="st-event" key={event.id}><span className="st-event-type">{event.event_type.replaceAll("_", " ")}</span><div className="st-event-copy"><b>{detail(event) || "Engine event"}</b><small>{new Date(event.created_at).toLocaleString()}</small>{event.event_type === "OBSERVATION_CYCLE" && <div className="st-signal-list">{strategyRows(event).map((signal, index) => <span className="st-signal-chip" key={index}><b>{String(signal.strategy ?? "Strategy")}</b><span>{String(signal.status ?? "UNKNOWN")}</span><small>Score {typeof signal.score === "number" ? signal.score.toFixed(1) : "—"}</small></span>)}</div>}</div></article>)}</div>}
-    <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. This feed is informational and has no trading controls.</p>
+      <div className="st-event-list">{events.map(event => <article className="st-event" key={event.id}><span className="st-event-type">{event.event_type.replaceAll("_", " ")}</span><div className="st-event-copy"><b>{detail(event, fx.format) || "Engine event"}</b><small>{new Date(event.created_at).toLocaleString()}</small>{event.event_type === "OBSERVATION_CYCLE" && <div className="st-signal-list">{strategyRows(event).map((signal, index) => <span className="st-signal-chip" key={index}><b>{String(signal.strategy ?? "Strategy")}</b><span>{String(signal.status ?? "UNKNOWN")}</span><small>Score {typeof signal.score === "number" ? signal.score.toFixed(1) : "—"}</small></span>)}</div>}</div></article>)}</div>}
+    <p className="st-live-footnote">Last checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. Market monetary values are converted from USD to ZAR using the latest available exchange rate. {fx.error ? "FX conversion unavailable." : ""} This feed is informational and has no trading controls.</p>
   </section>;
 }
