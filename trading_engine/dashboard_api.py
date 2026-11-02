@@ -84,6 +84,15 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                             "take_profit": (signal.get("risk") or {}).get("take_profit"),
                         })
                 return self._send(200, {"status": "OBSERVATION_ONLY", "decisions": decisions[:200]})
+            if parsed.path == "/api/broker-performance":
+                if broker_snapshot is None:
+                    return self._send(503, {"status": "UNAVAILABLE", "reason": "BROKER_NOT_CONNECTED", "realized_pnl": None, "execution_enabled": False, "read_only": True})
+                try:
+                    from .broker_performance import build_broker_performance
+                    broker_payload = broker_snapshot() if callable(broker_snapshot) else broker_snapshot.snapshot()
+                    return self._send(200, build_broker_performance(broker_payload))
+                except Exception:
+                    return self._send(503, {"status": "UNAVAILABLE", "reason": "BROKER_READ_FAILED", "realized_pnl": None, "execution_enabled": False, "read_only": True})
             if parsed.path == "/api/performance":
                 if event_store is None:
                     return self._send(503, {"status": "UNKNOWN", "execution_enabled": False})
