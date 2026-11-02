@@ -159,3 +159,12 @@ The worker and API are separate processes and must share the same durable databa
 Each observation-cycle event now stores the market price, source, bar timestamp and volume used for strategy evaluation, alongside all four strategy outcomes and reasons. Cycle reports expose the same market metadata, and the dashboard activity feed displays the observed price and data source. Tests assert that fixture observations preserve this metadata. Fixture data remains explicitly labelled IN_MEMORY_FIXTURE and must not be mistaken for live market observations. The change is committed; CI verification is pending.
 
 The dashboard activity feed also renders each of the four strategy outcomes with its status and score. Scores are heuristic ranking values from baseline formulas, not probabilities or expected returns.
+
+
+## Milestone 17: consistent and freshness-gated market observations
+
+The Alpaca IEX adapter now fetches one chronological bar window per symbol and derives both the latest snapshot and the strategy close history from that same response. This avoids two separate requests returning mismatched market moments and halves the normal historical-bar request count for each scan. The observation cycle uses this atomic interface where available and retains a compatibility fallback for simple providers.
+
+The existing Research Agent freshness gate blocks data older than 120 seconds or with invalid price/time geometry. New tests cover the single-fetch contract and stale-data rejection. The in-memory provider remains clearly labelled as a fixture. CI verification for this milestone is pending.
+
+This remains observation-only. No live/paper order submission is enabled by this worker. The adapter has not yet been connected to user credentials or run against an actual Alpaca account.
