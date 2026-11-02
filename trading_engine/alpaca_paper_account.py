@@ -49,6 +49,12 @@ class AlpacaPaperAccountReader:
         except (ValueError, UnicodeDecodeError) as exc:
             raise AlpacaPaperAccountError("ALPACA_INVALID_JSON_RESPONSE") from exc
 
+    def market_clock(self):
+        """Read the broker's authoritative US equity market clock."""
+        raw = self._get_json("/v2/clock")
+        fields = ("timestamp", "is_open", "next_open", "next_close")
+        return {"mode": "ALPACA_PAPER", **{key: raw.get(key) for key in fields}, "read_only": True}
+
     def account(self):
         raw = self._get_json("/v2/account")
         fields = (
