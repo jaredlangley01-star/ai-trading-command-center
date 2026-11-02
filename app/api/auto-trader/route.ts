@@ -22,6 +22,7 @@ import { SimulatedPaperBrokerService } from "@/src/services/broker/simulated-pap
 import { MarketDataEngine } from "@/src/services/market-data-engine";
 import { createPaperMarketData } from "@/src/services/market-data/factory";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
+import { validatePaperRiskSnapshot } from "@/src/services/broker/risk-snapshot-validation";
 import { CombinedOpportunityEngine } from "@/src/services/strategies/combined-opportunity-engine";
 import { TradePermissionService } from "@/src/services/trade-permission";
 import { normalizeDatabaseTime } from "@/src/services/config-time";
@@ -507,6 +508,8 @@ async function runCycle(
     positionsResult,
     portfolioRiskResult,
     brokerDashboard,
+    paperPortfolioResult,
+    paperPositionsResult,
   ] = await Promise.all([
     supabase
       .from("auto_trader_config")
@@ -534,6 +537,16 @@ async function runCycle(
       .eq("user_id", userId)
       .maybeSingle(),
     loadBrokerDashboard(),
+    supabase
+      .from("paper_portfolio_current")
+      .select("source,equity,cash,buying_power,open_exposure,position_count,open_order_count,as_of")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("paper_positions")
+      .select("symbol,quantity,entry_price,current_price,trade_origin,last_synced_at")
+      .eq("user_id", userId)
+      .in("status", ["OPEN", "EXIT_PENDING"]),
   ]);
   const config = applyPaperTestThresholds(mapConfig(configResult.data));
   if (
@@ -593,13 +606,44 @@ async function runCycle(
   let claimedDecisionId: string | null = null;
   let latestRiskDecisionId: string | null = null;
   const rows = positionsResult.data ?? [];
-  const exposure = rows.reduce(
-    (sum, row) =>
-      sum + Number(row.quantity) * Number(row.current_price ?? row.entry_price),
-    0,
-  );
-  const autoExposure = rows
-    .filter((row) => row.source === "AUTO_TRADER")
+  const usesAlpacaPaper = connectedBroker?.adapter === "ALPACA_PAPER";
+  const paperRiskSnapshot = usesAlpacaPaper
+    ? validatePaperRiskSnapshot(
+        paperPortfolioResult.data,
+        paperPositionsResult.data ?? [],
+        { maxAgeMs: Number(process.env.PAPER_PORTFOLIO_MAX_AGE_MS ?? 180_000) },
+      )
+    : null;
+  if (
+    usesAlpacaPaper &&
+    (paperPortfolioResult.error ||
+      paperPositionsResult.error ||
+      !paperRiskSnapshot?.valid ||
+      brokerDashboard.status !== "PAPER_CONNECTED" ||
+      !brokerDashboard.summary)
+  )
+    return NextResponse.json(
+      {
+        error: "BROKER_RISK_SNAPSHOT_INVALID",
+        reason: paperRiskSnapshot && !paperRiskSnapshot.valid
+          ? paperRiskSnapshot.reason
+          : "BROKER_ACCOUNT_SNAPSHOT_UNAVAILABLE",
+        mode: "PAPER",
+      },
+      { status: 503 },
+    );
+  const riskRows = usesAlpacaPaper ? paperPositionsResult.data ?? [] : rows;
+  const exposure = usesAlpacaPaper
+    ? paperRiskSnapshot!.valid
+      ? paperRiskSnapshot!.portfolioExposure
+      : 0
+    : rows.reduce(
+        (sum, row) =>
+          sum + Number(row.quantity) * Number(row.current_price ?? row.entry_price),
+        0,
+      );
+  const autoExposure = riskRows
+    .filter((row) => (usesAlpacaPaper ? row.trade_origin : row.source) === "AUTO_TRADER")
     .reduce(
       (sum, row) =>
         sum +
@@ -703,7 +747,7 @@ async function runCycle(
         stopLoss: order.stopLoss,
         dailyProfitLoss: Number(dailyResult.data?.profit_loss ?? 0),
         tradesToday: Number(dailyResult.data?.trades ?? 0),
-        concurrentPositions: rows.length,
+        concurrentPositions: riskRows.length,
         portfolioExposure: exposure,
         autoTraderExposure: autoExposure,
         assetExposure: rows
@@ -715,9 +759,11 @@ async function runCycle(
                 Number(row.current_price ?? row.entry_price),
             0,
           ),
-        portfolioValue: Number(
-          brokerDashboard.summary?.netLiquidation ?? 100000,
-        ),
+        portfolioValue: usesAlpacaPaper
+          ? paperRiskSnapshot!.valid
+            ? paperRiskSnapshot!.portfolioValue
+            : 0
+          : Number(brokerDashboard.summary?.netLiquidation ?? 100000),
         portfolioDrawdownPct: Number(
           portfolioRiskResult.data?.drawdown_pct ?? 0,
         ),
