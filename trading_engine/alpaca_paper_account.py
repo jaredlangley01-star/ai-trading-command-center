@@ -58,7 +58,7 @@ class AlpacaPaperAccountReader:
     def account(self):
         raw = self._get_json("/v2/account")
         fields = (
-            "status", "currency", "cash", "buying_power", "equity",
+            "status", "currency", "cash", "buying_power", "equity", "last_equity",
             "portfolio_value", "long_market_value", "short_market_value",
             "trading_blocked", "account_blocked", "trade_suspended_by_user",
         )
@@ -87,11 +87,22 @@ class AlpacaPaperAccountReader:
         )
         return [{key: item.get(key) for key in fields} for item in raw]
 
+    def open_orders(self, limit=100):
+        """Read all currently open orders (up to Alpaca API maximum)."""
+        if not 1 <= limit <= 100:
+            raise ValueError("LIMIT_MUST_BE_BETWEEN_1_AND_100")
+        raw = self._get_json("/v2/orders", {
+            "status": "open", "limit": limit, "direction": "desc", "nested": "false",
+        })
+        fields = ("id", "client_order_id", "symbol", "side", "qty", "filled_qty", "status", "submitted_at")
+        return [{key: item.get(key) for key in fields} for item in raw]
+
     def snapshot(self, order_limit=20):
         return {
             "mode": "ALPACA_PAPER",
             "account": self.account(),
             "positions": self.positions(),
             "recent_orders": self.recent_orders(order_limit),
+            "open_orders": self.open_orders(),
             "read_only": True,
         }
