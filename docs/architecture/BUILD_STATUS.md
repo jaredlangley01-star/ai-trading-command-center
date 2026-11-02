@@ -121,3 +121,12 @@ Configuration is server-side: APCA_API_KEY_ID, APCA_API_SECRET_KEY, SMALL_TRADIN
 ## Verification update
 
 CI run 41444444296 passed the dashboard API security guard, existing Python tests and dashboard type-check. The new worker code and tests were committed after that run and require their own successful CI run.
+
+
+## Milestone 13: server-side dashboard connection
+
+Added a same-origin Next.js API proxy for the read-only Python dashboard API. The proxy allow-lists status, health, portfolio and broker resources; only supports GET; disables caching; enforces HTTPS for non-local backend URLs; and keeps the bearer token in server environment variables. The dashboard now polls the backend status every 15 seconds and displays backend reachability, worker heartbeat, open simulated-position count and reconciliation status. Missing configuration is shown as NOT CONNECTED rather than fabricated account data.
+
+Required Next.js server environment variables are SMALL_TRADING_BACKEND_URL and SMALL_TRADING_API_TOKEN. The Python API must use the matching token. Never expose either variable with a NEXT_PUBLIC_ prefix. See docs/architecture/DASHBOARD_CONNECTION.md.
+
+The UI proxy and polling changes are committed but awaiting CI type-check. No backend URL, credentials, broker account, hosting or deployment has been configured.
