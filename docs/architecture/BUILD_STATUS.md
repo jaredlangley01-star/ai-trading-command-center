@@ -198,3 +198,12 @@ Added `render.yaml` as an optional single-service deployment blueprint. It speci
 The first CI run for the combined runtime, health-check endpoint, Render blueprint, Docker Compose config and frontend passed all five jobs: Python tests, dashboard TypeScript type-check, Docker build, Compose config validation, and Render YAML syntax validation (run 41450305621). A subsequent review found and corrected the Render feed variable name so it matches the Alpaca adapter's `APCA_DATA_FEED` setting. That one-line correction is committed after the passing run and requires a fresh CI run.
 
 No Render service has been created, no paid plan approved, no Alpaca credentials configured, and no broker account connected. The blueprint is configuration only. The service cannot start its market observation worker until valid Alpaca Paper/data credentials are securely configured. It remains observation-only; no order placement route exists.
+
+
+## Milestone 22: agent command centre and auditable activity
+
+Added a dashboard command centre that polls the persisted event log every five seconds and displays each specialist role, its latest recorded status, symbol, summary, timestamp and strategy outcomes where available. The worker now writes explicit AGENT_ACTIVITY events for Chief Orchestrator, Research Agent and Small Trading Agent during each observation cycle, including start, completion, blocked and error outcomes.
+
+The dashboard deliberately labels Risk Manager, Position Monitor and Performance Agent as standby/not yet connected to the recurring worker. Their software foundations or role scaffolds exist, but the dashboard does not pretend they are currently executing. The current agents are deterministic software roles, not independent LLM agents. All events explicitly retain execution_enabled=false. This is an audit view, not a trade control panel.
+
+The agent command centre becomes genuinely live only after the worker is running against the shared database and the dashboard API is connected. In-memory fixtures remain test data. CI must pass after this milestone before it is considered verified.
