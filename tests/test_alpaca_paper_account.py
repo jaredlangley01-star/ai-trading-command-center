@@ -89,3 +89,15 @@ def test_market_clock_uses_read_only_paper_endpoint():
     assert result["mode"] == "ALPACA_PAPER"
     assert result["read_only"] is True
     assert "unneeded" not in result
+
+
+def test_open_orders_are_read_only_and_included_in_snapshot():
+    reader = AlpacaPaperAccountReader("paper-key", "paper-secret")
+    payload = [{"id": "order-1", "symbol": "AAPL", "status": "new", "secret_extra": "ignored"}]
+    with patch("trading_engine.alpaca_paper_account.urlopen", return_value=FakeResponse(payload)) as mocked:
+        orders = reader.open_orders()
+    request = mocked.call_args.args[0]
+    assert request.get_method() == "GET"
+    assert request.full_url.startswith("https://paper-api.alpaca.markets/v2/orders?")
+    assert "status=open" in request.full_url
+    assert orders == [{"id": "order-1", "client_order_id": None, "symbol": "AAPL", "side": None, "qty": None, "filled_qty": None, "status": "new", "submitted_at": None}]
