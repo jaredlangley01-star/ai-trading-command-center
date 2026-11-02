@@ -32,12 +32,16 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
             self.wfile.write(body)
 
         def do_GET(self):
+            parsed = urlsplit(self.path)
+            # Minimal liveness probe for hosting-provider health checks. It
+            # exposes no account, portfolio, event or worker details.
+            if parsed.path == "/healthz":
+                return self._send(200, {"status": "ALIVE", "read_only": True})
             if token:
                 supplied = self.headers.get("Authorization", "")
                 expected = f"Bearer {token}"
                 if not hmac.compare_digest(supplied, expected):
                     return self._send(401, {"error": "UNAUTHORIZED"})
-            parsed = urlsplit(self.path)
             if parsed.path == "/api/events":
                 if event_store is None:
                     return self._send(503, {"error": "EVENT_STORE_NOT_CONFIGURED", "events": []})
