@@ -3,7 +3,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-def create_dashboard_server(portfolio_snapshot, health_snapshot, host="127.0.0.1", port=8765):
+def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot=None, host="127.0.0.1", port=8765):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status, payload):
             body = json.dumps(payload, default=str).encode("utf-8")
@@ -15,6 +15,14 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, host="127.0.0.1
             self.wfile.write(body)
 
         def do_GET(self):
+            if self.path == "/api/broker":
+                if broker_snapshot is None:
+                    return self._send(503, {"mode": "NOT_CONNECTED", "read_only": True})
+                try:
+                    payload = broker_snapshot() if callable(broker_snapshot) else broker_snapshot.snapshot()
+                    return self._send(200, payload)
+                except Exception:
+                    return self._send(503, {"mode": "UNAVAILABLE", "read_only": True, "error": "BROKER_READ_FAILED"})
             if self.path == "/api/health":
                 return self._send(200, health_snapshot.build())
             if self.path == "/api/portfolio":
