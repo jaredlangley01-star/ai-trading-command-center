@@ -45,13 +45,13 @@ export default function AgentCommandCentre() {
   const latest = (id: string) => activity.find(item => item.agent === id);
   const timeline = events.filter(e => e.event_type === "AGENT_ACTIVITY" && (agentFilter === "all" || String(e.payload?.agent ?? "") === agentFilter)).slice(0, 30);
   return <section className="st-card st-panel" id="agents">
-    <div className="st-panel-head"><div><h2>Agent Command Centre</h2><p>Recorded agent steps, outcomes and roles not active yet.</p></div><span className="st-tag">AUTO REFRESH · 5 SEC</span></div>
+    <div className="st-panel-head"><div><h2>Agent Command Centre</h2><p>Recorded work from all six specialist roles, including blocked decisions and outcomes.</p></div><span className="st-tag">AUTO REFRESH · 5 SEC</span></div>
     {error ? <div className="st-empty"><b>Agent activity is not connected</b><p>{error}</p><small>Connect the dashboard to the running worker to see real events.</small></div> :
       <div className="st-agent-grid">{agents.map((agent, index) => {
         const last = latest(agent.id);
-        const activeRole = agent.id === "chief_orchestrator" || agent.id === "research" || agent.id === "small_trading";
+        const activeRole = true;
         const ageSeconds = last ? Math.max(0, (Date.now() - new Date(last.createdAt).getTime()) / 1000) : null;
-        const status = last ? (ageSeconds !== null && ageSeconds > 180 ? "STALE" : last.status) : activeRole ? "NO ACTIVITY YET" : "STANDBY";
+        const status = last ? (ageSeconds !== null && ageSeconds > 180 ? "STALE" : last.status) : activeRole ? "WAITING FOR FIRST CYCLE" : "STANDBY";
         const statusClass = status === "ERROR" || status === "BLOCKED" || status === "STALE" ? "is-warning" : status === "WORKING" ? "is-working" : status === "COMPLETED" || status === "READY" ? "is-ok" : "";
         return <article className="st-agent st-agent-live" key={agent.id}>
           <span className="st-agent-number">0{index + 1}</span>
@@ -83,7 +83,7 @@ export default function AgentCommandCentre() {
             </div></li>;
         })}</ol>}
     </div>}
-    <div className="st-agent-disclaimer">Transparency note: only steps written to the audit log appear here. The first three roles currently run during observation scans. Risk approval, position monitoring and performance reporting are not yet connected to the recurring worker. These are deterministic software roles, not independent LLM agents. No orders are submitted.</div>
+    <div className="st-agent-disclaimer">Transparency note: only steps written to the audit log appear here. All six roles are now called by the recurring observation worker. Position checks only run when an open simulated position exists for the scanned symbol; risk reviews may be blocked until portfolio context is verified. These are deterministic software roles, not independent LLM agents. No orders are submitted.</div>
     <div className="st-live-footnote">Latest activity checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "—"}. An empty state does not mean an agent is working.</div>
   </section>;
 }
