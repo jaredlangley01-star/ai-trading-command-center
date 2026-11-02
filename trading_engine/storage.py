@@ -1,6 +1,7 @@
 """SQLite event/audit store for the initial single-worker deployment."""
 import json
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -11,7 +12,7 @@ class SQLiteStore:
         self._lock = RLock()
         self._keeper = None
         if path == ":memory:":
-            self._dsn = "file:smalltrading-memory?mode=memory&cache=shared"
+            self._dsn = f"file:smalltrading-{uuid.uuid4().hex}?mode=memory&cache=shared"
             self._uri = True
             self._keeper = sqlite3.connect(self._dsn, uri=True, check_same_thread=False)
         else:
