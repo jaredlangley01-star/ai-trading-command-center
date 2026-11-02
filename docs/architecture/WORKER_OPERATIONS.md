@@ -129,3 +129,18 @@ To stop the worker and API:
        docker compose -f docker-compose.small-trading.yml down
 
 The SQLite data volume is retained when containers are stopped this way. Do not use `down --volumes` unless you intend to erase the local trading event database.
+
+
+## Guided Mac startup (recommended for the first local run)
+
+After cloning this branch, you can use the guided startup script instead of manually creating the two environment files:
+
+    bash scripts/start-small-trading-mac.sh
+
+The script checks Docker Desktop and Node.js, securely prompts in the terminal for missing Alpaca Paper credentials (the secret input is hidden), generates a random dashboard API token, writes private local environment files with owner-only permissions, starts the worker/API containers, installs dashboard dependencies if needed, and launches the local dashboard. Credentials are never sent to this chat or printed by the script. The script does not create an Alpaca account and cannot proceed until the user has obtained Paper credentials from Alpaca.
+
+To stop the dashboard API and worker containers while preserving the local database volume:
+
+    bash scripts/stop-small-trading-mac.sh
+
+Pressing Control+C in the dashboard terminal stops only the Next.js development server; the Docker worker keeps running until the stop script is used. This local setup requires the Mac, Docker Desktop and internet connection to remain on.
