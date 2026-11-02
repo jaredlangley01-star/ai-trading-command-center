@@ -253,3 +253,10 @@ Added a read-only performance reporting component that calculates closed/open si
 Corrected the Agent Command Centre to reflect that all six deterministic roles are now invoked by the observation worker. Position Monitor activity is conditional: it checks a symbol only when an open simulated position exists and fresh market data is available. The role description no longer implies end-of-day closure is active; exchange-session scheduling remains future work.
 
 Improved the preliminary risk preview so it does not invent a one-share proposal when the illustrative risk/value limits cannot support even one whole share. Such candidates now return `POSITION_SIZE_BELOW_MINIMUM` with quantity zero. Updated the decision journal disclaimer to distinguish the connected preliminary risk review from the still-disabled execution path. Added a regression test for the zero-share case.
+
+
+## Milestone 31: no-credential local demo mode
+
+The worker environment builder now supports `SMALL_TRADING_DATA_MODE=demo` (the default) and `SMALL_TRADING_DATA_MODE=alpaca_iex`. Demo mode generates deterministic synthetic price series for the configured symbols and feeds them through the same observation, strategy, preliminary risk, monitoring and performance workflow. It requires no broker credentials and cannot submit orders. The source remains `IN_MEMORY_FIXTURE` and the market-data dashboard explicitly labels it "GENERATED DEMO DATA · NOT LIVE". Demo output is for observing software processes only; it is not market research, backtesting or trading evidence.
+
+The Mac startup template now defaults to demo mode, so the dashboard and agent activity can be viewed before Alpaca account setup. To switch to actual IEX observations later, set `SMALL_TRADING_DATA_MODE=alpaca_iex` in the private `.env.small-trading` file and provide Alpaca credentials securely through the local terminal. Automated tests cover demo startup without credentials, symbol observations, execution disabled, and rejection of unknown data modes.
