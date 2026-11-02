@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: small-trading-paper
+    runtime: docker
+    plan: starter
+    dockerCommand: small-trading-app
+    healthCheckPath: /api/health
+    autoDeploy: false
+    disk:
+      name: small-trading-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SMALL_TRADING_API_HOST
+        value: 0.0.0.0
+      - key: SMALL_TRADING_DATABASE_PATH
+        value: /data/trading.db
+      - key: SMALL_TRADING_API_TOKEN
+        generateValue: true
+      - key: SMALL_TRADING_SYMBOLS
+        value: AAPL,MSFT,NVDA
+      - key: SMALL_TRADING_SCAN_INTERVAL_SECONDS
+        value: "60"
+      - key: APCA_API_DATA_FEED
+        value: IEX
+      - key: APCA_API_KEY_ID
+        sync: false
+      - key: APCA_API_SECRET_KEY
+        sync: false
