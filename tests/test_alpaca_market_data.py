@@ -61,9 +61,10 @@ def test_empty_bar_response_is_not_treated_as_zero_price():
 
 
 def test_fetch_observation_uses_one_request_for_price_and_history():
+    # Alpaca sort=desc returns newest bars first; the adapter normalizes them.
     payload = {"bars": [
-        {"t": "2026-11-02T10:14:00Z", "o": 99, "h": 100, "l": 98, "c": 99.5, "v": 800},
         {"t": "2026-11-02T10:15:00Z", "o": 100, "h": 102, "l": 99, "c": 101.5, "v": 1234},
+        {"t": "2026-11-02T10:14:00Z", "o": 99, "h": 100, "l": 98, "c": 99.5, "v": 800},
     ]}
     provider = AlpacaIEXMarketDataProvider("test-key", "test-secret")
     with patch("trading_engine.alpaca_market_data.urlopen", return_value=FakeResponse(payload)) as mocked:
