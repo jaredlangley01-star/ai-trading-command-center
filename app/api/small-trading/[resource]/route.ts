@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ALLOWED_RESOURCES = new Set(["status", "health", "portfolio", "broker", "reconciliation", "events", "market", "market-clock", "decisions", "performance"]);
+const ALLOWED_RESOURCES = new Set(["status", "health", "portfolio", "broker", "reconciliation", "events", "market", "market-clock", "decisions", "performance", "broker-performance"]);
 
 function backendUrl(resource: string) {
   const configured = process.env.SMALL_TRADING_BACKEND_URL;
