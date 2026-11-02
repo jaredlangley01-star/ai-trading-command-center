@@ -24,7 +24,7 @@ def test_worker_records_observation_events_and_heartbeat_without_execution():
     assert len(cycle["payload"]["signals"]) == 4
     assert any(event["event_type"] == "HEARTBEAT" for event in events)
     agent_events = [event for event in events if event["event_type"] == "AGENT_ACTIVITY"]
-    assert {event["payload"]["agent"] for event in agent_events} == {"chief_orchestrator", "research", "small_trading"}
+    assert {event["payload"]["agent"] for event in agent_events} == {"chief_orchestrator", "research", "small_trading", "risk_manager"}
     assert any(event["payload"]["phase"] == "STRATEGIES_EVALUATED" for event in agent_events)
     assert all(event["payload"]["execution_enabled"] is False for event in agent_events)
     assert HealthSnapshot(store).build()["component"] == "small-trading-observation-worker"
@@ -55,4 +55,22 @@ def test_worker_records_provider_errors_and_continues():
     assert any(event["event_type"] == "AGENT_ACTIVITY" and event["payload"]["status"] == "ERROR" for event in events)
     assert error["payload"]["execution_enabled"] is False
     assert HealthSnapshot(store).build()["status"] == "ERROR"
+    store.close()
+
+
+
+def test_worker_runs_risk_previews_but_never_approves_without_verified_portfolio_context():
+    store = SQLiteStore(":memory:")
+    provider = InMemoryMarketDataProvider({"AAPL": [100 + i for i in range(25)]})
+    worker = ObservationWorker(ObservationCycle(provider), store, ["AAPL"])
+    worker.run_once()
+    cycle = next(e for e in store.list_events(100) if e["event_type"] == "OBSERVATION_CYCLE")
+    directional = [s for s in cycle["payload"]["signals"] if s["status"] in {"BUY", "SELL"}]
+    assert directional
+    assert all(s["risk"]["status"] == "REJECTED" for s in directional)
+    assert all(s["risk"]["reason"] == "PORTFOLIO_CONTEXT_UNVERIFIED" for s in directional)
+    risk_events = [e for e in store.list_events(100) if e["event_type"] == "AGENT_ACTIVITY" and e["payload"]["agent"] == "risk_manager"]
+    assert risk_events
+    assert all(e["payload"]["execution_enabled"] is False for e in risk_events)
+    assert not any(e["event_type"] == "ORDER_FILLED" for e in store.list_events(100))
     store.close()
