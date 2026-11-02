@@ -207,3 +207,8 @@ Added a dashboard command centre that polls the persisted event log every five s
 The dashboard deliberately labels Risk Manager, Position Monitor and Performance Agent as standby/not yet connected to the recurring worker. Their software foundations or role scaffolds exist, but the dashboard does not pretend they are currently executing. The current agents are deterministic software roles, not independent LLM agents. All events explicitly retain execution_enabled=false. This is an audit view, not a trade control panel.
 
 The agent command centre becomes genuinely live only after the worker is running against the shared database and the dashboard API is connected. In-memory fixtures remain test data. CI must pass after this milestone before it is considered verified.
+
+
+## Milestone 23: filterable agent activity timeline
+
+Expanded the Agent Command Centre with a chronological activity timeline, newest first, and a filter for each agent role. Timeline rows show the recorded phase, symbol, result, timestamp and strategy outcome/reason when present. The dashboard polls the existing read-only audit-events endpoint; it does not fabricate activity or trigger agent runs. The timeline is limited to the latest 30 agent events returned from the existing event window. No order execution has been enabled.
