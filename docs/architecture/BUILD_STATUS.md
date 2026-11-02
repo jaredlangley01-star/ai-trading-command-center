@@ -241,3 +241,8 @@ The decision journal now displays the preliminary risk result, rejection reason,
 ## Milestone 28: recurring simulated position monitoring
 
 The observation worker now checks existing simulated ledger positions for the symbol whenever a fresh market observation is available. It writes a visible activity event for the check and records when a stop-loss or take-profit condition closes a simulated ledger position. It does not submit a broker exit order; the ledger close is a simulation record only. End-of-day closure is not yet connected to an exchange-session scheduler. Added a worker integration test for a simulated long position hitting its stop. Position Monitor is now marked active in the Agent Command Centre.
+
+
+## Milestone 29: performance reporting agent and dashboard
+
+Added a read-only performance reporting component that calculates closed/open simulated ledger positions, winners, losers, win rate, realized P&L, gross profit and gross loss from persisted `POSITION_CLOSED` events. The worker records a performance summary after each observation cycle. A protected read-only `/api/performance` endpoint and dashboard panel expose the summary, explicitly labelling its source as simulated ledger events and reconciliation as NOT_RECONCILED. It is not broker account P&L and must not be interpreted as evidence of a profitable strategy.
