@@ -213,3 +213,23 @@ def test_decisions_endpoint_exposes_strategy_signal_history_without_risk_or_exec
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_performance_endpoint_reports_simulator_ledger_only():
+    from trading_engine.storage import SQLiteStore
+    store = SQLiteStore(":memory:")
+    server = create_dashboard_server(Portfolio(), Health(), port=0, event_store=store)
+    thread = _serve(server)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/api/performance") as response:
+            payload = json.loads(response.read())
+        assert payload["mode"] == "PAPER_SIMULATOR_LEDGER"
+        assert payload["source"] == "SIMULATED_POSITION_EVENTS_ONLY"
+        assert payload["execution_enabled"] is False
+        assert payload["reconciliation_status"] == "NOT_RECONCILED"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        store.close()
