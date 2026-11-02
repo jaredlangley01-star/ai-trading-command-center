@@ -94,3 +94,20 @@ def test_worker_position_monitor_marks_and_closes_simulated_position_on_stop():
     assert any(e["event_type"] == "AGENT_ACTIVITY" and e["payload"]["agent"] == "position_monitor" and e["payload"]["phase"] == "POSITION_EXIT_TRIGGERED" for e in events)
     assert not any(e["event_type"] == "ORDER_FILLED" for e in events)
     store.close()
+
+
+def test_preliminary_risk_preview_does_not_invent_a_one_share_size_when_limits_allow_zero():
+    from types import SimpleNamespace
+    from trading_engine.models import Side
+    store = SQLiteStore(":memory:")
+    worker = ObservationWorker(
+        ObservationCycle(InMemoryMarketDataProvider({"AAPL": [2000, 2001]})),
+        store, ["AAPL"]
+    )
+    signal = SimpleNamespace(side=Side.BUY, strategy="TREND")
+    preview = worker._risk_preview(signal, 2000.0, "AAPL", datetime.now(timezone.utc))
+    assert preview["status"] == "REJECTED"
+    assert preview["reason"] == "POSITION_SIZE_BELOW_MINIMUM"
+    assert preview["proposed_quantity"] == 0
+    assert preview["approved_quantity"] == 0
+    store.close()
