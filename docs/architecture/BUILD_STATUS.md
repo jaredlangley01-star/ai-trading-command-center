@@ -168,3 +168,10 @@ The Alpaca IEX adapter now fetches one chronological bar window per symbol and d
 The existing Research Agent freshness gate blocks data older than 120 seconds or with invalid price/time geometry. New tests cover the single-fetch contract and stale-data rejection. The in-memory provider remains clearly labelled as a fixture. CI verification for this milestone is pending.
 
 This remains observation-only. No live/paper order submission is enabled by this worker. The adapter has not yet been connected to user credentials or run against an actual Alpaca account.
+
+
+## Milestone 18: read-only market freshness diagnostics
+
+Added an authenticated GET-only /api/market endpoint that reads recent observation events and reports the latest recorded bar per symbol, its source, timestamp, price, age and FRESH/STALE state. The dashboard now polls and displays this information, using the same 120-second freshness threshold as the Research Agent. Missing data is shown as UNKNOWN rather than a fabricated feed status. Added an API test for latest-per-symbol selection and freshness.
+
+The endpoint reports the latest data already recorded by the worker; it does not itself fetch market data or guarantee that the worker is running. Alpaca IEX and fixture data remain distinguishable by source. CI verification is pending.
