@@ -26,7 +26,7 @@ def test_paper_gateway_records_simulated_fill_and_prevents_duplicate():
 
 def test_risk_rejection_never_reaches_broker():
     gate,broker,_=gateway()
-    with pytest.raises(PermissionError,match="RISK_REJECTED"):
+    with pytest.raises(PermissionError,match="PAPER_ONLY_GATE"):
         gate.submit(make_proposal(mode="LIVE"),RiskContext(),"bad-mode")
     assert broker.list_fills()==[]
 
