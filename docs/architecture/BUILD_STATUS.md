@@ -92,3 +92,21 @@ The adapter has automated tests for missing credentials, rejection of non-IEX fe
 Broker/data research: Alpaca documents that anyone globally can create a paper-only account, which is restricted to IEX market data. Alpaca's free Basic equity data is IEX-only, with 30 websocket symbol subscriptions and 200 historical API calls per minute. IEX is not the consolidated all-exchange US market feed. Account and service eligibility should still be confirmed during signup. See official docs: https://docs.alpaca.markets/us/docs/paper-trading and https://docs.alpaca.markets/us/docs/about-market-data-api.
 
 Hosting research: Render free web services sleep after 15 minutes of inactivity and have ephemeral local filesystems; Vercel Hobby cron runs only once per day; Cloudflare Workers free limits include 100,000 requests/day but only 10ms CPU per request. These constraints mean none should be presented as a reliable always-on trading worker. A free-first UI may be possible, but reliable 24/7 execution may ultimately require a paid always-on worker or a carefully constrained serverless design. No service has been provisioned and no costs incurred.
+
+
+## Milestone 11: dashboard API access guard
+
+The dashboard API binds to loopback by default. Non-loopback binds are refused unless SMALL_TRADING_API_TOKEN is configured. When configured, all GET routes require a matching Authorization: Bearer token. Responses include no-store caching and nosniff headers. Automated tests cover local read-only behaviour, refusal of unprotected external binding, and bearer-token enforcement.
+
+CI run 41444205207 passed both Python tests and dashboard type-check before this security change. The new guard changes require a fresh CI run before they are considered verified.
+
+## Current status (2026-11-02)
+
+- Alpaca IEX market-data adapter: committed; tests passed in CI.
+- Alpaca Paper account reader: committed; unit tests passed in CI.
+- Dashboard API: read-only routes plus local-only default and bearer-token guard; latest security-guard changes awaiting CI.
+- Dashboard UI: scaffold only; not yet wired to the Python API or broker.
+- No Alpaca credentials configured; no broker account connected.
+- No hosted worker, deployment, or cloud resource provisioned.
+- No orders placed; live trading is not implemented.
+- Strategy evaluators remain baseline rules, not validated profitable strategies.
