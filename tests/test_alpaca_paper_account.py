@@ -69,3 +69,23 @@ def test_reader_requires_credentials():
     with patch.dict("os.environ", {}, clear=True):
         with pytest.raises(AlpacaPaperAccountError, match="CREDENTIALS_NOT_CONFIGURED"):
             AlpacaPaperAccountReader()
+
+
+def test_market_clock_uses_read_only_paper_endpoint():
+    reader = AlpacaPaperAccountReader("paper-key", "paper-secret")
+    payload = {
+        "timestamp": "2026-11-02T15:00:00Z",
+        "is_open": True,
+        "next_open": "2026-11-03T14:30:00Z",
+        "next_close": "2026-11-02T21:00:00Z",
+        "unneeded": "must-not-leak",
+    }
+    with patch("trading_engine.alpaca_paper_account.urlopen", return_value=FakeResponse(payload)) as mocked:
+        result = reader.market_clock()
+    request = mocked.call_args.args[0]
+    assert request.full_url == "https://paper-api.alpaca.markets/v2/clock"
+    assert request.get_method() == "GET"
+    assert result["is_open"] is True
+    assert result["mode"] == "ALPACA_PAPER"
+    assert result["read_only"] is True
+    assert "unneeded" not in result
