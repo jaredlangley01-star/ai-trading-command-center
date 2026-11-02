@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { defaultRiskSettings } from "../src/config/trading.ts";
 import { ProductionRiskManager } from "../src/services/risk-manager.ts";
+import { validatePaperRiskSnapshot } from "../src/services/broker/risk-snapshot-validation.ts";
 
 const context = (overrides = {}) => ({
   requestedCapital: 2000,
@@ -158,4 +159,52 @@ test("risk state and decisions are owner scoped and PAPER mode remains enforced"
   assert.ok((migration.match(/auth\.uid\(\) = user_id/g) ?? []).length >= 3);
   assert.match(route, /mode:\s*"PAPER"/);
   assert.match(route, /ProductionRiskManager/);
+});
+
+test("PAPER risk snapshot requires fresh, internally consistent broker data", () => {
+  const now = Date.parse("2026-11-02T12:00:00.000Z");
+  const portfolio = {
+    source: "ALPACA_PAPER",
+    equity: "50000",
+    cash: "20000",
+    buying_power: "40000",
+    open_exposure: "10000",
+    position_count: 1,
+    as_of: "2026-11-02T11:59:00.000Z",
+  };
+  const positions = [{
+    symbol: "AAPL",
+    quantity: "100",
+    current_price: "100",
+    entry_price: "95",
+    last_synced_at: "2026-11-02T11:59:00.000Z",
+  }];
+  assert.deepEqual(
+    validatePaperRiskSnapshot(portfolio, positions, { now }),
+    { valid: true, portfolioValue: 50000, portfolioExposure: 10000 },
+  );
+  assert.equal(
+    validatePaperRiskSnapshot({ ...portfolio, source: "SIMULATED_PAPER" }, positions, { now }).reason,
+    "BROKER_SNAPSHOT_SOURCE_INVALID",
+  );
+  assert.equal(
+    validatePaperRiskSnapshot({ ...portfolio, equity: "NaN" }, positions, { now }).reason,
+    "BROKER_ACCOUNT_VALUE_INVALID",
+  );
+  assert.equal(
+    validatePaperRiskSnapshot({ ...portfolio, as_of: "2026-11-02T11:50:00.000Z" }, positions, { now }).reason,
+    "BROKER_PORTFOLIO_SNAPSHOT_STALE",
+  );
+  assert.equal(
+    validatePaperRiskSnapshot(portfolio, [{ ...positions[0], last_synced_at: null }], { now }).reason,
+    "BROKER_POSITION_SNAPSHOT_STALE",
+  );
+  assert.equal(
+    validatePaperRiskSnapshot({ ...portfolio, position_count: 2 }, positions, { now }).reason,
+    "BROKER_POSITION_COUNT_MISMATCH",
+  );
+  assert.equal(
+    validatePaperRiskSnapshot({ ...portfolio, open_exposure: "5000" }, positions, { now }).reason,
+    "BROKER_EXPOSURE_MISMATCH",
+  );
 });
