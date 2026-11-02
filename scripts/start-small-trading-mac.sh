@@ -12,6 +12,7 @@ command -v node >/dev/null 2>&1 || fail "Node.js is not installed. Install Node.
 command -v npm >/dev/null 2>&1 || fail "npm was not found."
 node -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<22 || (a===22 && b<13)) process.exit(1)' || fail "Node.js 22.13 or newer is required."
 command -v openssl >/dev/null 2>&1 || fail "OpenSSL is required to generate a private dashboard token."
+command -v python3 >/dev/null 2>&1 || fail "Python 3 is required for local environment-file setup."
 
 if [[ ! -f .env.small-trading ]]; then
   [[ -f .env.small-trading.example ]] || fail "Missing .env.small-trading.example."
