@@ -142,3 +142,30 @@ def test_market_endpoint_reports_latest_observation_and_freshness():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_market_clock_endpoint_returns_read_only_broker_clock():
+    class Clock:
+        def market_clock(self):
+            return {
+                "mode": "ALPACA_PAPER",
+                "timestamp": "2026-11-02T15:00:00Z",
+                "is_open": False,
+                "next_open": "2026-11-03T14:30:00Z",
+                "next_close": "2026-11-03T21:00:00Z",
+                "read_only": True,
+            }
+    server = create_dashboard_server(Portfolio(), Health(), port=0, market_clock_snapshot=Clock())
+    thread = _serve(server)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/api/market-clock") as response:
+            payload = json.loads(response.read())
+        assert payload["mode"] == "ALPACA_PAPER"
+        assert payload["is_open"] is False
+        assert payload["next_open"] == "2026-11-03T14:30:00Z"
+        assert payload["read_only"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
