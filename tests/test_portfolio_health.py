@@ -32,6 +32,6 @@ def test_health_unknown_ok_and_stale():
     beat = Heartbeat(store)
     beat.record("OK", "cycle completed")
     assert health.build()["status"] == "OK"
-    old = datetime.now(timezone.utc) - timedelta(minutes=5)
-    assert health.build(now=old + timedelta(minutes=6))["status"] == "STALE"
+    future = datetime.now(timezone.utc) + timedelta(minutes=5)
+    assert health.build(now=future)["status"] == "STALE"
     store.close()
