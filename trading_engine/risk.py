@@ -17,6 +17,7 @@ class RiskContext:
     current_exposure: float = 0.0
     emergency_stop: bool = False
     paper_mode: bool = True
+    portfolio_context_verified: bool = True
 
 class RiskManager:
     def __init__(self, limits=RiskLimits()): self.limits = limits
@@ -26,6 +27,7 @@ class RiskManager:
         if context.emergency_stop: return reject("EMERGENCY_STOP_ACTIVE")
         if context.daily_realized_pnl <= -abs(self.limits.max_daily_loss): return reject("DAILY_LOSS_LIMIT_REACHED")
         if context.open_positions >= self.limits.max_open_positions: return reject("MAX_OPEN_POSITIONS_REACHED")
+        if not context.portfolio_context_verified: return reject("PORTFOLIO_CONTEXT_UNVERIFIED")
         if proposal.quantity <= 0 or min(proposal.entry, proposal.stop_loss, proposal.take_profit) <= 0: return reject("INVALID_ORDER_PARAMETERS")
         if proposal.side == Side.BUY and not proposal.stop_loss < proposal.entry < proposal.take_profit: return reject("INVALID_LONG_PRICE_STRUCTURE")
         if proposal.side == Side.SELL and not proposal.take_profit < proposal.entry < proposal.stop_loss: return reject("INVALID_SHORT_PRICE_STRUCTURE")
