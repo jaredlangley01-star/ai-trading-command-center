@@ -111,3 +111,32 @@ def test_preliminary_risk_preview_does_not_invent_a_one_share_size_when_limits_a
     assert preview["proposed_quantity"] == 0
     assert preview["approved_quantity"] == 0
     store.close()
+
+
+def test_environment_builder_defaults_to_explicit_demo_data_without_broker_credentials(monkeypatch, tmp_path):
+    from trading_engine.worker import build_worker_from_environment
+    monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
+    monkeypatch.delenv("APCA_API_SECRET_KEY", raising=False)
+    monkeypatch.setenv("SMALL_TRADING_DATA_MODE", "demo")
+    monkeypatch.setenv("SMALL_TRADING_SYMBOLS", "AAPL,MSFT")
+    monkeypatch.setenv("SMALL_TRADING_DATABASE_PATH", str(tmp_path / "demo.db"))
+    worker, store = build_worker_from_environment()
+    try:
+        reports = worker.run_once()
+        assert len(reports) == 2
+        events = store.list_events(100)
+        cycles = [e for e in events if e["event_type"] == "OBSERVATION_CYCLE"]
+        assert {e["payload"]["market"]["source"] for e in cycles} == {"IN_MEMORY_FIXTURE"}
+        assert {e["payload"]["symbol"] for e in cycles} == {"AAPL", "MSFT"}
+        assert all(e["payload"]["execution_enabled"] is False for e in cycles)
+    finally:
+        store.close()
+
+
+def test_environment_builder_rejects_unknown_data_mode(monkeypatch, tmp_path):
+    from trading_engine.worker import build_worker_from_environment
+    monkeypatch.setenv("SMALL_TRADING_DATA_MODE", "unknown")
+    monkeypatch.setenv("SMALL_TRADING_DATABASE_PATH", str(tmp_path / "invalid.db"))
+    import pytest
+    with pytest.raises(ValueError, match="SMALL_TRADING_DATA_MODE_MUST_BE"):
+        build_worker_from_environment()
