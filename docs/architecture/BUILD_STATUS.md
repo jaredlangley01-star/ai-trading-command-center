@@ -212,3 +212,8 @@ The agent command centre becomes genuinely live only after the worker is running
 ## Milestone 23: filterable agent activity timeline
 
 Expanded the Agent Command Centre with a chronological activity timeline, newest first, and a filter for each agent role. Timeline rows show the recorded phase, symbol, result, timestamp and strategy outcome/reason when present. The dashboard polls the existing read-only audit-events endpoint; it does not fabricate activity or trigger agent runs. The timeline is limited to the latest 30 agent events returned from the existing event window. No order execution has been enabled.
+
+
+## Milestone 24: safer shared SQLite operation
+
+The event store now explicitly closes every short-lived SQLite connection, uses a 10-second busy timeout, and enables WAL plus NORMAL synchronous mode for file-backed databases. WAL is intended to improve concurrent read access while the observation worker writes and the dashboard API reads the same local event database. In-memory test databases remain isolated and do not enable WAL. Added tests verify file persistence after reopening, duplicate event-key idempotency, WAL mode and in-memory isolation. This improves local reliability but does not replace backups or make SQLite suitable for multiple independent hosts.
