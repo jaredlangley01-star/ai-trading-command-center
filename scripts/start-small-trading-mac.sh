@@ -20,8 +20,12 @@ if [[ ! -f .env.small-trading ]]; then
   printf "Created private .env.small-trading.\n"
 fi
 
-if grep -Eq 'replace-with-paper-account-key|replace-with-paper-account-secret' .env.small-trading; then
-  printf "\nAlpaca Paper credentials are needed for real market observations.\n"
+DATA_MODE="$(sed -n 's/^SMALL_TRADING_DATA_MODE=//p' .env.small-trading | tail -n 1)"
+DATA_MODE="${DATA_MODE:-demo}"
+if [[ "$DATA_MODE" != "demo" && "$DATA_MODE" != "alpaca_iex" ]]; then fail "SMALL_TRADING_DATA_MODE must be demo or alpaca_iex."; fi
+
+if [[ "$DATA_MODE" == "alpaca_iex" ]] && grep -Eq 'replace-with-paper-account-key|replace-with-paper-account-secret' .env.small-trading; then
+  printf "\nAlpaca Paper credentials are needed for real IEX market observations.\n"
   read -r -p "Alpaca Paper API Key ID: " APCA_KEY
   read -r -s -p "Alpaca Paper Secret Key: " APCA_SECRET
   printf "\n"
@@ -60,7 +64,7 @@ SMALL_TRADING_API_TOKEN=$TOKEN
 EOF
 chmod 600 .env.local
 
-printf "\nStarting the observation worker and private dashboard API...\n"
+printf "\nStarting in %s data mode (no broker orders can be placed)...\n" "$DATA_MODE"
 docker compose -f docker-compose.small-trading.yml up -d --build
 printf "\nInstalling dashboard dependencies if needed...\n"
 if [[ ! -d node_modules ]]; then npm ci; fi
