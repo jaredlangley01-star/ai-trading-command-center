@@ -53,6 +53,30 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                 except (TypeError, ValueError):
                     return self._send(400, {"error": "INVALID_LIMIT", "message": "limit must be between 1 and 100"})
                 return self._send(200, {"events": event_store.list_events(limit)})
+            if parsed.path == "/api/decisions":
+                if event_store is None:
+                    return self._send(503, {"status": "UNKNOWN", "decisions": []})
+                decisions = []
+                for event in event_store.list_events(1000):
+                    if event.get("event_type") != "OBSERVATION_CYCLE":
+                        continue
+                    payload = event.get("payload") or {}
+                    market = payload.get("market") or {}
+                    for signal in payload.get("signals") or []:
+                        decisions.append({
+                            "event_id": event.get("id"),
+                            "symbol": payload.get("symbol"),
+                            "observed_at": market.get("timestamp") or event.get("created_at"),
+                            "market_price": market.get("price"),
+                            "market_source": market.get("source"),
+                            "strategy": signal.get("strategy"),
+                            "signal": signal.get("status", "UNKNOWN"),
+                            "score": signal.get("score", 0.0),
+                            "reason": signal.get("reason", ""),
+                            "execution_enabled": False,
+                            "risk_status": "NOT_EVALUATED",
+                        })
+                return self._send(200, {"status": "OBSERVATION_ONLY", "decisions": decisions[:200]})
             if parsed.path == "/api/market":
                 if event_store is None:
                     return self._send(503, {"status": "UNKNOWN", "observations": []})
