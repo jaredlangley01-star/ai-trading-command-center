@@ -21,10 +21,18 @@ def build_dashboard_server_from_environment():
     portfolio = PortfolioSnapshot(simulator, PositionLedger(store), store)
     health = HealthSnapshot(store)
     broker_reader = None
-    try:
-        broker_reader = AlpacaPaperAccountReader()
-    except AlpacaPaperAccountError:
-        pass
+    api_key = os.getenv("APCA_API_KEY_ID", "")
+    api_secret = os.getenv("APCA_API_SECRET_KEY", "")
+    credentials_configured = (
+        bool(api_key and api_secret)
+        and not api_key.startswith("replace-with-")
+        and not api_secret.startswith("replace-with-")
+    )
+    if credentials_configured:
+        try:
+            broker_reader = AlpacaPaperAccountReader()
+        except AlpacaPaperAccountError:
+            pass
     server = create_dashboard_server(portfolio, health, broker_snapshot=broker_reader, host=host, port=port, access_token=token, event_store=store, market_clock_snapshot=broker_reader)
     return server, store
 
