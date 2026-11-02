@@ -217,3 +217,10 @@ Expanded the Agent Command Centre with a chronological activity timeline, newest
 ## Milestone 24: safer shared SQLite operation
 
 The event store now explicitly closes every short-lived SQLite connection, uses a 10-second busy timeout, and enables WAL plus NORMAL synchronous mode for file-backed databases. WAL is intended to improve concurrent read access while the observation worker writes and the dashboard API reads the same local event database. In-memory test databases remain isolated and do not enable WAL. Added tests verify file persistence after reopening, duplicate event-key idempotency, WAL mode and in-memory isolation. This improves local reliability but does not replace backups or make SQLite suitable for multiple independent hosts.
+
+
+## Milestone 25: strategy decision journal
+
+Added a read-only `/api/decisions` endpoint derived from persisted observation-cycle events. It exposes each strategy's symbol, signal, score, reason, observation timestamp, market price and data source. Every row explicitly reports `risk_status=NOT_EVALUATED` and `execution_enabled=false`; this is intentional because signal generation is not yet connected to the risk gate or execution service.
+
+The dashboard now includes a filterable Strategy Decision Journal with counts for evaluations, directional signals and no-signal outcomes. It refreshes every 10 seconds and makes clear that BUY/SELL signals are not approved trade recommendations. The endpoint does not create proposals or place orders.
