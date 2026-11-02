@@ -1,8 +1,10 @@
 """Observation-only trading cycle; intentionally has no order-submission path."""
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
 from .agents import ChiefOrchestrator, ResearchAgent, SmallTradingAgent
 from .market_data import MarketDataProvider
+
 
 @dataclass(frozen=True)
 class CycleReport:
@@ -16,6 +18,7 @@ class CycleReport:
     market_source: str | None = None
     volume: float | None = None
 
+
 class ObservationCycle:
     def __init__(self, provider: MarketDataProvider, orchestrator: ChiefOrchestrator | None = None):
         self.provider = provider
@@ -23,8 +26,15 @@ class ObservationCycle:
 
     def run_symbol(self, symbol: str) -> CycleReport:
         try:
-            snapshot = self.provider.latest_snapshot(symbol)
-            closes = self.provider.recent_closes(symbol, 100)
+            # Production adapters implement fetch_observation so the latest price
+            # and strategy history come from the same API response. Keep the
+            # two-method fallback for third-party/test providers.
+            fetch = getattr(self.provider, "fetch_observation", None)
+            if callable(fetch):
+                snapshot, closes = fetch(symbol, 100)
+            else:
+                snapshot = self.provider.latest_snapshot(symbol)
+                closes = self.provider.recent_closes(symbol, 100)
             health, signals = self.orchestrator.run_symbol(snapshot, closes)
             return CycleReport(
                 symbol.upper(), health.status, health.message, tuple(signals),
@@ -32,4 +42,7 @@ class ObservationCycle:
                 snapshot.source, getattr(snapshot, "volume", None),
             )
         except (KeyError, ValueError) as exc:
-            return CycleReport(symbol.upper(), "BLOCKED", f"DATA_UNAVAILABLE: {exc}", tuple(), datetime.now(timezone.utc))
+            return CycleReport(
+                symbol.upper(), "BLOCKED", f"DATA_UNAVAILABLE: {exc}", tuple(),
+                datetime.now(timezone.utc)
+            )
