@@ -2,6 +2,8 @@
 import logging
 import os
 import signal
+from threading import Event, Thread
+
 from .alpaca_paper_account import AlpacaPaperAccountReader, AlpacaPaperAccountError
 from .broker import SimulatedPaperBroker
 from .dashboard_api import create_dashboard_server
@@ -26,8 +28,7 @@ def build_dashboard_server_from_environment():
     except AlpacaPaperAccountError:
         pass
     server = create_dashboard_server(
-        portfolio, health,
-        broker_snapshot=broker_reader,
+        portfolio, health, broker_snapshot=broker_reader,
         host=host, port=port, access_token=token,
     )
     return server, store
@@ -37,14 +38,24 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     server = None
     store = None
+    serving_thread = None
+    stopped = Event()
     try:
         server, store = build_dashboard_server_from_environment()
         logging.info("read-only dashboard API listening on %s:%s", *server.server_address)
+        serving_thread = Thread(target=server.serve_forever, name="dashboard-api", daemon=True)
+        serving_thread.start()
+
         def stop(_signum, _frame):
-            server.shutdown()
+            stopped.set()
+
         signal.signal(signal.SIGINT, stop)
         signal.signal(signal.SIGTERM, stop)
-        server.serve_forever()
+        while not stopped.wait(1):
+            if not serving_thread.is_alive():
+                raise RuntimeError("DASHBOARD_API_SERVER_STOPPED")
+        server.shutdown()
+        serving_thread.join(timeout=5)
         return 0
     except Exception:
         logging.exception("dashboard API startup failed")
