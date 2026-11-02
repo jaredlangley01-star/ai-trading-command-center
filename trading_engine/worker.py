@@ -1,5 +1,6 @@
 """Observation worker with transparent, non-executing risk previews."""
 import os
+import math
 from datetime import timezone
 from .cycle import ObservationCycle
 from .health import Heartbeat
@@ -174,12 +175,29 @@ class ObservationWorker:
 
 def build_worker_from_environment():
     from .alpaca_market_data import AlpacaIEXMarketDataProvider
+    from .market_data import InMemoryMarketDataProvider
     symbols = os.getenv("SMALL_TRADING_SYMBOLS", "AAPL,MSFT,NVDA").split(",")
     interval = int(os.getenv("SMALL_TRADING_SCAN_INTERVAL_SECONDS", "60"))
     database_path = os.getenv("SMALL_TRADING_DATABASE_PATH", "data/trading.db")
+    data_mode = os.getenv("SMALL_TRADING_DATA_MODE", "demo").strip().lower()
     store = SQLiteStore(database_path)
     try:
-        provider = AlpacaIEXMarketDataProvider()
+        if data_mode == "demo":
+            demo_prices = {}
+            for raw_symbol in symbols:
+                symbol = raw_symbol.strip().upper()
+                if not symbol:
+                    continue
+                base = 70 + (sum(ord(char) for char in symbol) % 130)
+                demo_prices[symbol] = [
+                    round(base + index * 0.12 + math.sin(index / 4) * 1.5, 4)
+                    for index in range(120)
+                ]
+            provider = InMemoryMarketDataProvider(demo_prices)
+        elif data_mode == "alpaca_iex":
+            provider = AlpacaIEXMarketDataProvider()
+        else:
+            raise ValueError("SMALL_TRADING_DATA_MODE_MUST_BE_demo_OR_alpaca_iex")
         worker = ObservationWorker(ObservationCycle(provider), store, symbols, interval)
         return worker, store
     except Exception:
