@@ -34,3 +34,23 @@ Add persistent audit/event storage and a broker adapter interface with a PAPER-o
 ## Verification notes
 
 A review identified and corrected two simulator/test-foundation issues: the in-memory SQLite test store now shares one named in-memory database across connections, and the simulated broker rejects reuse of an idempotency key for a different order payload. The source has been updated, but automated tests have not yet been executed in a Python runtime. Do not treat the implementation as verified until CI or a local Python 3.12+ test run passes.
+
+
+## Milestone 5: position lifecycle
+
+Added an event-backed position ledger, simulated-fill validation, position marking, long/short P&L calculation, idempotent close events, and deterministic stop-loss, take-profit and end-of-day exit checks. Initial tests cover long position open/mark/close, stop-loss, end-of-day exit, duplicate close and rejection of non-simulated fills.
+
+## Important limitations
+
+- Broker remains a local simulator; no Alpaca/IBKR API is connected.
+- Simulated fills use proposal entry price; no bid/ask, slippage, partial fills, fees, liquidity or market impact.
+- No real-time market-data source is connected.
+- End-of-day close only acts when called with a current price; there is not yet an exchange calendar, cutoff scheduler, quote refresh or broker-side protective order.
+- Position ledger is event-backed but not yet multi-process safe as a complete trading system.
+- No cloud deployment or paid service has been provisioned.
+- Strategy baselines are not evidence of profitability.
+- Automated tests are authored but successful execution has not yet been confirmed.
+
+## Next milestone
+
+Add account/portfolio reconciliation, dashboard read API, system heartbeat and runtime checks. Then run CI, review broker eligibility/data access for the user's jurisdiction, and only after that connect a real PAPER account.
