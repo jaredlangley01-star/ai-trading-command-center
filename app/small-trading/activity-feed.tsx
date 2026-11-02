@@ -17,7 +17,17 @@ function detail(event: EventItem) {
   if (event.event_type === "OBSERVATION_CYCLE") return [symbol, price ? "Price " + price : "", source, status, signals ? signals + " strategy evaluations" : ""].filter(Boolean).join(" · ");
   if (event.event_type === "OBSERVATION_ERROR") return [symbol, typeof p.error_type === "string" ? p.error_type : "Worker error", message].filter(Boolean).join(" · ");
   if (event.event_type === "HEARTBEAT") return [typeof p.component === "string" ? p.component : "Worker", status, message].filter(Boolean).join(" · ");
-  return Object.entries(p).slice(0, 3).map(([k, v]) => k + ": " + String(v)).join(" · ");
+  if (event.event_type === "AGENT_ACTIVITY") {
+    const parts = [
+      typeof p.agent === "string" ? p.agent.replaceAll("_", " ") : "Agent",
+      typeof p.phase === "string" ? p.phase.replaceAll("_", " ") : "",
+      status,
+      typeof p.summary === "string" ? p.summary : "",
+      symbol,
+    ];
+    return parts.filter(Boolean).join(" · ");
+  }
+  return Object.entries(p).filter(([, v]) => v === null || ["string", "number", "boolean"].includes(typeof v)).slice(0, 3).map(([k, v]) => k + ": " + String(v)).join(" · ");
 }
 export default function ActivityFeed() {
   const [events, setEvents] = useState<EventItem[]>([]);
