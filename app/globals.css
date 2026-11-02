@@ -5445,3 +5445,21 @@ body {
   .orbit-main { padding: 12px; }
   .orbit-heading { padding: 2px 2px 14px; }
 }
+
+
+/* Agent lifecycle: completed and blocked specialists leave the orbital scene. */
+.orbit-rest-area{margin-top:14px;padding:16px;border:1px solid #293b52;border-radius:14px;background:linear-gradient(145deg,#101b2b,#0a1320)}
+.orbit-rest-area>header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.orbit-rest-area h2{margin:0 0 5px;color:#e9d9f6;font-size:12px;letter-spacing:.14em}
+.orbit-rest-area header p{margin:0;color:#8da1b8;font-size:10px;line-height:1.5}
+.orbit-rest-area header>b{flex:none;color:#d99aff;font:800 9px ui-monospace,monospace;letter-spacing:.1em}
+.orbit-rest-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:10px}
+.orbit-rest-agent{display:flex;align-items:center;gap:12px;min-width:0;padding:10px 12px;border:1px solid #67447b;border-radius:12px;background:linear-gradient(120deg,#241b32,#121a29);color:#f0e8f7;text-align:left;cursor:pointer;transition:border-color .18s,transform .18s}
+.orbit-rest-agent:hover{transform:translateY(-2px);border-color:#bd83df}
+.orbit-rest-agent .orbit-bot{flex:none;transform:scale(.72);transform-origin:center;margin:0;width:50px;height:52px}
+.orbit-rest-agent>span:last-child{display:flex;flex-direction:column;gap:4px;min-width:0}
+.orbit-rest-agent b{font-size:10px}
+.orbit-rest-agent small{color:#a9a1b6;font-size:8px;line-height:1.4}
+.orbit-rest-agent em{color:#d99aff;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.07em}
+.orbit-rest-empty{padding:14px;border:1px dashed #34445a;border-radius:10px;color:#8da1b8;font-size:10px;text-align:center}
+@media(max-width:480px){.orbit-rest-area{padding:12px}.orbit-rest-area>header{align-items:flex-start}.orbit-rest-grid{grid-template-columns:1fr}}
