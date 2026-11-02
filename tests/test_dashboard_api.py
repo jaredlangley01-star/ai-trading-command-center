@@ -169,3 +169,17 @@ def test_market_clock_endpoint_returns_read_only_broker_clock():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_healthz_is_minimal_and_available_without_bearer_token():
+    server = create_dashboard_server(Portfolio(), Health(), port=0, access_token="test-secret")
+    thread = _serve(server)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/healthz") as response:
+            payload = json.loads(response.read())
+        assert payload == {"status": "ALIVE", "read_only": True}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
