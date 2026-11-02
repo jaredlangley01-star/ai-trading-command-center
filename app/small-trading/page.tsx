@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import LiveSystemStatus from "./live-system-status";
 import BrokerReadOnlyPanel from "./broker-read-only-panel";
@@ -32,6 +32,7 @@ const pageTitles: Record<PageKey, { title: string; description: string }> = {
 export default function SmallTradingDashboard() {
  const [page, setPage] = useState<PageKey>("overview");
  const current = pageTitles[page];
+ useEffect(() => { window.scrollTo({ top: 0, behavior: "auto" }); }, [page]);
  return <main className="st-shell st-command-shell">
   <aside className="st-sidebar st-command-sidebar">
    <Link className="st-brand" href="/small-trading"><span className="st-mark">⌁</span><span><b>TRADING COMMAND CENTER</b><small>AI TRADING OPERATIONS</small></span></Link>
