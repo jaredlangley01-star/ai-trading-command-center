@@ -74,3 +74,23 @@ def test_worker_runs_risk_previews_but_never_approves_without_verified_portfolio
     assert all(e["payload"]["execution_enabled"] is False for e in risk_events)
     assert not any(e["event_type"] == "ORDER_FILLED" for e in store.list_events(100))
     store.close()
+
+
+def test_worker_position_monitor_marks_and_closes_simulated_position_on_stop():
+    from trading_engine.positions import PositionLedger
+    store = SQLiteStore(":memory:")
+    ledger = PositionLedger(store)
+    ledger.open_from_fill({
+        "simulated": True, "status": "SIMULATED_FILLED", "order_id": "SIM-000001",
+        "symbol": "AAPL", "side": "BUY", "quantity": 2, "fill_price": 100.0,
+    }, stop_loss=99.0, take_profit=102.0, strategy="TREND")
+    provider = InMemoryMarketDataProvider({"AAPL": [100, 100, 100, 98]})
+    worker = ObservationWorker(ObservationCycle(provider), store, ["AAPL"])
+    worker.run_once()
+    closed = ledger.get("SIM-000001")
+    assert closed.status == "CLOSED"
+    assert closed.exit_reason == "STOP_LOSS"
+    events = store.list_events(100)
+    assert any(e["event_type"] == "AGENT_ACTIVITY" and e["payload"]["agent"] == "position_monitor" and e["payload"]["phase"] == "POSITION_EXIT_TRIGGERED" for e in events)
+    assert not any(e["event_type"] == "ORDER_FILLED" for e in events)
+    store.close()
