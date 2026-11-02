@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from urllib.parse import urlsplit, parse_qs
 from datetime import datetime, timezone
+from .agents import MARKET_DATA_MAX_AGE_SECONDS
 
 
 def _is_loopback(host):
@@ -112,12 +113,12 @@ def create_dashboard_server(portfolio_snapshot, health_snapshot, broker_snapshot
                         "source": market.get("source") or "UNKNOWN",
                         "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
                         "age_seconds": round(age, 1),
-                        "freshness": "FRESH" if age <= 120 else "STALE",
+                        "freshness": "FRESH" if age <= MARKET_DATA_MAX_AGE_SECONDS else "STALE",
                         "volume": market.get("volume"),
                     }
                 observations = list(latest.values())
                 overall = "UNKNOWN" if not observations else ("STALE" if any(x["freshness"] == "STALE" for x in observations) else "FRESH")
-                return self._send(200, {"status": overall, "max_age_seconds": 120, "observations": observations})
+                return self._send(200, {"status": overall, "max_age_seconds": MARKET_DATA_MAX_AGE_SECONDS, "observations": observations})
             if parsed.path == "/api/market-clock":
                 if market_clock_snapshot is None:
                     return self._send(503, {"status": "UNKNOWN", "read_only": True})
