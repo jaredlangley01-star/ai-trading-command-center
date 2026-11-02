@@ -1,6 +1,5 @@
 """Local simulator only. This is NOT a real broker connection or market fill."""
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from threading import RLock
 from .models import Side, TradeProposal
 
@@ -20,6 +19,7 @@ class SimulatedPaperBroker:
         if starting_cash <= 0: raise ValueError("starting_cash must be positive")
         self._cash=starting_cash
         self._fills={}
+        self._requests={}
         self._lock=RLock()
 
     @property
@@ -29,8 +29,12 @@ class SimulatedPaperBroker:
     def submit(self, proposal: TradeProposal, client_order_id: str) -> SimulatedFill:
         if proposal.mode != "PAPER": raise PermissionError("PAPER_ONLY")
         if not client_order_id.strip(): raise ValueError("client_order_id required")
+        request=(proposal.symbol.upper(),proposal.side.value,proposal.quantity,proposal.entry,proposal.stop_loss,proposal.take_profit)
         with self._lock:
-            if client_order_id in self._fills: return self._fills[client_order_id]
+            if client_order_id in self._fills:
+                if self._requests[client_order_id] != request:
+                    raise ValueError("IDEMPOTENCY_KEY_REUSED_FOR_DIFFERENT_ORDER")
+                return self._fills[client_order_id]
             gross=proposal.entry*proposal.quantity
             if proposal.side == Side.BUY and gross > self._cash:
                 raise ValueError("INSUFFICIENT_SIMULATED_CASH")
@@ -43,6 +47,7 @@ class SimulatedPaperBroker:
                 quantity=proposal.quantity, fill_price=proposal.entry,
                 status="SIMULATED_FILLED")
             self._fills[client_order_id]=fill
+            self._requests[client_order_id]=request
             return fill
 
     def list_fills(self):
