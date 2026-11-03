@@ -4,6 +4,7 @@ import test from "node:test";
 import { defaultRiskSettings } from "../src/config/trading.ts";
 import { ProductionRiskManager } from "../src/services/risk-manager.ts";
 import { validatePaperRiskSnapshot } from "../src/services/broker/risk-snapshot-validation.ts";
+import { summarizePendingPaperOrders } from "../src/services/broker/pending-order-reservations.ts";
 
 const context = (overrides = {}) => ({
   requestedCapital: 2000,
@@ -206,5 +207,47 @@ test("PAPER risk snapshot requires fresh, internally consistent broker data", ()
   assert.equal(
     validatePaperRiskSnapshot({ ...portfolio, open_exposure: "5000" }, positions, { now }).reason,
     "BROKER_EXPOSURE_MISMATCH",
+  );
+});
+
+test("pending PAPER orders reserve portfolio, asset, and Auto Trader capacity", async () => {
+  const pending = summarizePendingPaperOrders([
+    { symbol: "AAPL", source: "AUTO_TRADER", status: "ACCEPTED", order_type: "LIMIT", quantity: 10, filled_quantity: 2, limit_price: 100 },
+    { symbol: "MSFT", source: "MANUAL", status: "QUEUED", order_type: "LIMIT", quantity: 5, filled_quantity: 0, limit_price: 200 },
+    { symbol: "NVDA", source: "MANUAL", status: "FILLED", order_type: "LIMIT", quantity: 5, filled_quantity: 5, limit_price: 100 },
+  ]);
+  assert.equal(pending.valid, true);
+  if (pending.valid) {
+    assert.equal(pending.reservedExposure, 1800);
+    assert.equal(pending.reservedBySymbol.AAPL, 800);
+    assert.equal(pending.activeOrderCount, 2);
+  }
+  const result = await manager({
+    maximumCapitalPerTrade: 10000,
+    maximumExposurePerAsset: 100,
+    maximumPortfolioExposure: 100,
+    autoTraderAllocatedCapital: 12000,
+  }).evaluateOrder(context({
+    requestedCapital: 3000,
+    autoTraderExposure: 10000,
+    reservedAutoTraderExposure: 1000,
+  }));
+  assert.equal(result.status, "REDUCE_SIZE");
+  assert.equal(result.reason, "AUTO_TRADER_CAPITAL_ALLOCATION_EXCEEDED");
+  assert.equal(result.approvedCapital, 1000);
+});
+
+test("unknown-price pending market orders and malformed reservations fail closed", () => {
+  assert.deepEqual(
+    summarizePendingPaperOrders([
+      { symbol: "AAPL", status: "ACCEPTED", order_type: "MARKET", quantity: 2, filled_quantity: 0 },
+    ]),
+    { valid: false, reason: "PENDING_MARKET_ORDER_PRICE_UNKNOWN" },
+  );
+  assert.deepEqual(
+    summarizePendingPaperOrders([
+      { symbol: "", status: "QUEUED", order_type: "LIMIT", quantity: 2, limit_price: 10 },
+    ]),
+    { valid: false, reason: "PENDING_ORDER_DATA_INVALID" },
   );
 });
