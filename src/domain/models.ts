@@ -365,6 +365,10 @@ export interface TradeRiskContext {
   portfolioExposure: number;
   autoTraderExposure: number;
   assetExposure: number;
+  reservedExposure?: number;
+  reservedAutoTraderExposure?: number;
+  reservedAssetExposure?: number;
+  reservedOrderCount?: number;
   portfolioValue: number;
   portfolioDrawdownPct: number;
   source: "MANUAL" | "AUTO_TRADER" | "BIG_MONEY" | "POSITION_MANAGER";
