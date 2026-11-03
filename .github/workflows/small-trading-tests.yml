@@ -37,6 +37,8 @@ jobs:
         run: npm ci
       - name: Type-check dashboard
         run: npm run typecheck
+      - name: Build dashboard for rendered HTML tests
+        run: npm run build
       - name: Run dashboard, broker, and risk regression tests
         run: npm test
 
