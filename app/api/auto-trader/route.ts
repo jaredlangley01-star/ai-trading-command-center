@@ -23,6 +23,7 @@ import { MarketDataEngine } from "@/src/services/market-data-engine";
 import { createPaperMarketData } from "@/src/services/market-data/factory";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
 import { validatePaperRiskSnapshot } from "@/src/services/broker/risk-snapshot-validation";
+import { summarizePendingPaperOrders } from "@/src/services/broker/pending-order-reservations";
 import { CombinedOpportunityEngine } from "@/src/services/strategies/combined-opportunity-engine";
 import { TradePermissionService } from "@/src/services/trade-permission";
 import { normalizeDatabaseTime } from "@/src/services/config-time";
@@ -510,6 +511,7 @@ async function runCycle(
     brokerDashboard,
     paperPortfolioResult,
     paperPositionsResult,
+    pendingOrdersResult,
   ] = await Promise.all([
     supabase
       .from("auto_trader_config")
@@ -547,7 +549,20 @@ async function runCycle(
       .select("symbol,quantity,entry_price,current_price,trade_origin,last_synced_at")
       .eq("user_id", userId)
       .in("status", ["OPEN", "EXIT_PENDING"]),
+    supabase
+      .from("paper_execution_requests")
+      .select("symbol,direction,status,quantity,filled_quantity,limit_price,order_type,source")
+      .eq("user_id", userId)
+      .in("status", ["QUEUED", "SUBMITTING", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"]),
   ]);
+  const pendingReservations = pendingOrdersResult.error
+    ? { valid: false as const, reason: "PENDING_ORDERS_UNAVAILABLE" }
+    : summarizePendingPaperOrders(pendingOrdersResult.data ?? []);
+  if (!pendingReservations.valid)
+    return NextResponse.json(
+      { error: "PENDING_ORDER_RISK_RESERVATION_INVALID", reason: pendingReservations.reason, mode: "PAPER" },
+      { status: 503 },
+    );
   const config = applyPaperTestThresholds(mapConfig(configResult.data));
   if (
     !canOpenIntradayEntry(new Date(), {
@@ -757,6 +772,10 @@ async function runCycle(
         dailyProfitLoss: Number(dailyResult.data?.profit_loss ?? 0),
         tradesToday: Number(dailyResult.data?.trades ?? 0),
         concurrentPositions: riskRows.length,
+        reservedOrderCount: pendingReservations.activeOrderCount,
+        reservedExposure: pendingReservations.reservedExposure,
+        reservedAssetExposure: pendingReservations.reservedBySymbol[asset.symbol] ?? 0,
+        reservedAutoTraderExposure: (pendingOrdersResult.data ?? []).filter((row) => row.source === "AUTO_TRADER").reduce((sum, row) => sum + Math.max(0, Number(row.quantity) - Number(row.filled_quantity ?? 0)) * Number(row.limit_price ?? 0), 0),
         portfolioExposure: exposure,
         autoTraderExposure: autoExposure,
         assetExposure: rows
