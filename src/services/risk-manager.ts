@@ -80,7 +80,7 @@ export class ProductionRiskManager {
         this.settings.bigMoneyApprovalThreshold
     )
       return decision("REJECTED", "BIG_MONEY_APPROVAL_REQUIRED", context);
-    if (context.concurrentPositions >= this.settings.maximumConcurrentPositions)
+    if (context.concurrentPositions + (context.reservedOrderCount ?? 0) >= this.settings.maximumConcurrentPositions)
       return decision("REJECTED", "MAX_CONCURRENT_POSITIONS", context);
     if (!context.stopLoss || calculatedLoss <= 0)
       return decision("REJECTED", "INSUFFICIENT_RISK_CAPACITY", context);
@@ -98,8 +98,8 @@ export class ProductionRiskManager {
               context.autoTraderExposure,
           )
         : Number.POSITIVE_INFINITY,
-      Math.max(0, portfolioLimit - context.portfolioExposure),
-      Math.max(0, assetLimit - context.assetExposure),
+      Math.max(0, portfolioLimit - context.portfolioExposure - (context.reservedExposure ?? 0)),
+      Math.max(0, assetLimit - context.assetExposure - (context.reservedAssetExposure ?? 0)),
       calculatedLoss > 0
         ? (context.requestedCapital * this.settings.maximumRiskPerTrade) /
           calculatedLoss
@@ -115,10 +115,10 @@ export class ProductionRiskManager {
           : calculatedLoss > this.settings.maximumRiskPerTrade
             ? "MAX_LOSS_PER_TRADE_EXCEEDED"
             : context.source === "AUTO_TRADER" &&
-                context.autoTraderExposure + context.requestedCapital >
+                context.autoTraderExposure + (context.reservedAutoTraderExposure ?? 0) + context.requestedCapital >
                   this.settings.autoTraderAllocatedCapital
               ? "AUTO_TRADER_CAPITAL_ALLOCATION_EXCEEDED"
-              : context.assetExposure + context.requestedCapital > assetLimit
+              : context.assetExposure + (context.reservedAssetExposure ?? 0) + context.requestedCapital > assetLimit
                 ? "MAX_ASSET_EXPOSURE_EXCEEDED"
                 : "MAX_PORTFOLIO_EXPOSURE_EXCEEDED";
       return decision("REDUCE_SIZE", reason, context, approvedCapital);
