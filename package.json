@@ -15,7 +15,7 @@
     "worker:trader": "node --experimental-strip-types hosted-worker/trader-worker.mjs",
     "worker:check": "node --check hosted-worker/index.mjs",
     "start": "vinext start",
-    "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "format:check": "prettier --check .",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
