@@ -95,7 +95,8 @@ export class ProductionRiskManager {
         ? Math.max(
             0,
             this.settings.autoTraderAllocatedCapital -
-              context.autoTraderExposure,
+              context.autoTraderExposure -
+              (context.reservedAutoTraderExposure ?? 0),
           )
         : Number.POSITIVE_INFINITY,
       Math.max(0, portfolioLimit - context.portfolioExposure - (context.reservedExposure ?? 0)),
