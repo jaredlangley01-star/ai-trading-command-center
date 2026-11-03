@@ -37,6 +37,8 @@ jobs:
         run: npm ci
       - name: Type-check dashboard
         run: npm run typecheck
+      - name: Run dashboard, broker, and risk regression tests
+        run: npm test
 
   worker-container-build:
     runs-on: ubuntu-latest
