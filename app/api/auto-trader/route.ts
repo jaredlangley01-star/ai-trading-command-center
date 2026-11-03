@@ -778,7 +778,7 @@ async function runCycle(
         reservedAutoTraderExposure: (pendingOrdersResult.data ?? []).filter((row) => row.source === "AUTO_TRADER").reduce((sum, row) => sum + Math.max(0, Number(row.quantity) - Number(row.filled_quantity ?? 0)) * Number(row.limit_price ?? 0), 0),
         portfolioExposure: exposure,
         autoTraderExposure: autoExposure,
-        assetExposure: rows
+        assetExposure: riskRows
           .filter((row) => row.symbol === asset.symbol)
           .reduce(
             (sum, row) =>
