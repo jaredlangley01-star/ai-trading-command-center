@@ -16,6 +16,7 @@ import type {
 } from "@/src/domain/models";
 import { ProductionRiskManager } from "@/src/services/risk-manager";
 import { validatePaperRiskSnapshot } from "@/src/services/broker/risk-snapshot-validation";
+import { summarizePendingPaperOrders } from "@/src/services/broker/pending-order-reservations";
 import { heartbeatIsFresh } from "@/src/services/diagnostics";
 import {
   evaluateSessionQuoteFreshness,
@@ -181,6 +182,7 @@ export async function POST(request: Request) {
       portfolioResult,
       quoteResult,
       workerResult,
+      pendingOrdersResult,
     ] = supabase
       ? await Promise.all([
           supabase
@@ -224,6 +226,11 @@ export async function POST(request: Request) {
             .order("last_seen_at", { ascending: false })
             .limit(1)
             .maybeSingle(),
+          supabase
+            .from("paper_execution_requests")
+            .select("symbol,direction,status,quantity,filled_quantity,limit_price,order_type")
+            .eq("user_id", user.id)
+            .in("status", ["QUEUED", "SUBMITTING", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"]),
         ])
       : [
           { data: null },
@@ -233,6 +240,7 @@ export async function POST(request: Request) {
           { data: null },
           { data: null },
           { data: null },
+          { data: null, error: new Error("SUPABASE_UNAVAILABLE") },
         ];
     if (!supabase || !heartbeatIsFresh(workerResult.data))
       throw new BrokerError(
@@ -267,6 +275,11 @@ export async function POST(request: Request) {
         "SYNC_FAILED: a current Railway Alpaca IEX quote is unavailable.",
         true,
       );
+    if (pendingOrdersResult.error)
+      throw new BrokerError("SYNC_FAILED", "SYNC_FAILED: pending PAPER orders are unavailable for risk reservation.", true);
+    const pendingReservations = summarizePendingPaperOrders(pendingOrdersResult.data ?? []);
+    if (!pendingReservations.valid)
+      throw new BrokerError("SYNC_FAILED", `SYNC_FAILED: pending PAPER order risk reservation rejected (${pendingReservations.reason}).`, true);
     const settings: RiskSettings = {
       ...defaultRiskSettings,
       ...(settingsResult.data?.settings as Partial<RiskSettings> | null),
@@ -343,6 +356,10 @@ export async function POST(request: Request) {
       dailyProfitLoss: Number(dailyResult.data?.profit_loss ?? 0),
       tradesToday: Number(dailyResult.data?.trades_opened ?? 0),
       concurrentPositions: positionRows.length,
+      reservedOrderCount: pendingReservations.activeOrderCount,
+      reservedExposure: pendingReservations.reservedExposure,
+      reservedAssetExposure: pendingReservations.reservedBySymbol[body.symbol.toUpperCase()] ?? 0,
+      reservedAutoTraderExposure: (pendingOrdersResult.data ?? []).filter((row) => row.source === "AUTO_TRADER" && ["QUEUED", "SUBMITTING", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"].includes(row.status)).reduce((sum, row) => sum + Math.max(0, Number(row.quantity) - Number(row.filled_quantity ?? 0)) * Number(row.limit_price ?? 0), 0),
       portfolioExposure,
       autoTraderExposure,
       assetExposure,
