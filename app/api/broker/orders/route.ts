@@ -228,7 +228,7 @@ export async function POST(request: Request) {
             .maybeSingle(),
           supabase
             .from("paper_execution_requests")
-            .select("symbol,direction,status,quantity,filled_quantity,limit_price,order_type")
+            .select("symbol,direction,status,quantity,filled_quantity,limit_price,order_type,source")
             .eq("user_id", user.id)
             .in("status", ["QUEUED", "SUBMITTING", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"]),
         ])
